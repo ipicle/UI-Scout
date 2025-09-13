@@ -1,6 +1,7 @@
 import Foundation
 import ApplicationServices
 import AVFoundation
+import AppKit
 import Logging
 
 public class PermissionsManager {
@@ -381,18 +382,18 @@ public class UIScoutBootstrap {
         self.permissionsManager = PermissionsManager()
     }
     
-    public func initialize() async throws -> PermissionStatus {
+    public func initialize() async throws -> PermissionsManager.PermissionStatus {
         logger.info("Initializing UIScout...")
         
         // Detect environment
         let environment = permissionsManager.detectEnvironment()
-        logger.info(environment.description)
+    logger.info("\(environment.description)")
         logger.info("Recommended approach: \(environment.recommendedSetupApproach)")
         
         // Check current permissions
-        let initialStatus = permissionsManager.checkAllPermissions()
-        logger.info("Initial permission check:")
-        logger.info(initialStatus.description)
+    let initialStatus = permissionsManager.checkAllPermissions()
+    logger.info("Initial permission check:")
+    logger.info("\(initialStatus.description)")
         
         // If we don't have required permissions, start guided setup
         if !initialStatus.canOperate {
@@ -438,7 +439,7 @@ public class UIScoutBootstrap {
         _ = readLine()
     }
     
-    private func waitForPermissions() async -> PermissionStatus {
+    private func waitForPermissions() async -> PermissionsManager.PermissionStatus {
         for attempt in 1...60 { // Wait up to 60 seconds
             let status = permissionsManager.checkAllPermissions()
             

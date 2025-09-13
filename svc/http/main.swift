@@ -10,12 +10,12 @@ struct UIScoutService {
     static func main() async throws {
         var env = try Environment.detect()
         try LoggingSystem.bootstrap(from: &env)
-        
-        let app = Application(env)
-        defer { app.shutdown() }
-        
-        try await configure(app)
-        try await app.run()
+
+    let app = try await Application.make(env)
+    defer { Task { try? await app.asyncShutdown() } }
+
+    try await configure(app)
+    try await app.execute()
     }
 }
 
@@ -79,16 +79,16 @@ private struct UIScoutOrchestratorKey: StorageKey {
     typealias Value = UIScoutOrchestrator
 }
 
-extension Application.Storage {
+extension Application {
     var orchestrator: UIScoutOrchestrator {
         get {
-            guard let orchestrator = self[UIScoutOrchestratorKey.self] else {
+            guard let orchestrator = self.storage[UIScoutOrchestratorKey.self] else {
                 fatalError("UIScoutOrchestrator not configured")
             }
             return orchestrator
         }
         set {
-            self[UIScoutOrchestratorKey.self] = newValue
+            self.storage[UIScoutOrchestratorKey.self] = newValue
         }
     }
 }
@@ -97,8 +97,8 @@ extension Application.Storage {
 
 func routes(_ app: Application) throws {
     // Health check
-    app.get("health") { req in
-        return ["status": "ok", "timestamp": Date().timeIntervalSince1970]
+    app.get("health") { req -> HealthResponse in
+        HealthResponse(status: "ok", timestamp: Date().timeIntervalSince1970)
     }
     
     // API version 1
@@ -107,7 +107,7 @@ func routes(_ app: Application) throws {
     // Find element
     api.post("find") { req -> ElementResultResponse in
         let request = try req.content.decode(FindElementRequest.self)
-        let orchestrator = req.application.storage.orchestrator
+        let orchestrator = req.application.orchestrator
         
         guard let elementType = ElementSignature.ElementType(rawValue: request.elementType) else {
             throw Abort(.badRequest, reason: "Invalid element type")
@@ -127,7 +127,7 @@ func routes(_ app: Application) throws {
     // After-send diff
     api.post("after-send-diff") { req -> ElementResultResponse in
         let request = try req.content.decode(AfterSendDiffRequest.self)
-        let orchestrator = req.application.storage.orchestrator
+        let orchestrator = req.application.orchestrator
         
         let policy = request.policy ?? Policy.default
         
@@ -143,7 +143,7 @@ func routes(_ app: Application) throws {
     // Observe element
     api.post("observe") { req -> Response in
         let request = try req.content.decode(ObserveElementRequest.self)
-        let orchestrator = req.application.storage.orchestrator
+        let orchestrator = req.application.orchestrator
         
         // Start observation
         let eventStream = await orchestrator.observeElement(
@@ -159,33 +159,30 @@ func routes(_ app: Application) throws {
         response.headers.add(name: .cacheControl, value: "no-cache")
         response.headers.add(name: .connection, value: "keep-alive")
         
-        // Stream events
+        // Stream events (server-sent events) using EventLoop scheduling
         response.body = .init(stream: { writer in
             let startTime = Date()
             let endTime = startTime.addingTimeInterval(TimeInterval(request.durationSeconds))
             var eventCount = 0
             
-            while Date() < endTime {
+            func pump() {
+                if Date() >= endTime {
+                    let completionString = "{\"type\":\"complete\",\"total_events\":\(eventCount)}"
+                    _ = writer.write(.buffer(.init(string: "data: \(completionString)\n\n")))
+                    return
+                }
                 let events = eventStream.getRecentEvents(since: startTime)
                 let newEvents = events.suffix(events.count - eventCount)
-                
                 for event in newEvents {
-                    let eventData = try? JSONEncoder().encode(ObservationEvent(from: event))
-                    if let eventData = eventData, let eventString = String(data: eventData, encoding: .utf8) {
-                        try await writer.write(.buffer(.init(string: "data: \(eventString)\n\n")))
+                    if let eventData = try? JSONEncoder().encode(ObservationEvent(from: event)),
+                       let eventString = String(data: eventData, encoding: .utf8) {
+                        _ = writer.write(.buffer(.init(string: "data: \(eventString)\n\n")))
                         eventCount += 1
                     }
                 }
-                
-                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                _ = req.eventLoop.scheduleTask(in: .milliseconds(100)) { pump() }
             }
-            
-            // Send completion event
-            let completion = ["type": "complete", "total_events": eventCount]
-            if let completionData = try? JSONEncoder().encode(completion),
-               let completionString = String(data: completionData, encoding: .utf8) {
-                try await writer.write(.buffer(.init(string: "data: \(completionString)\n\n")))
-            }
+            pump()
         })
         
         return response
@@ -194,7 +191,7 @@ func routes(_ app: Application) throws {
     // Capture snapshot
     api.post("snapshot") { req -> SnapshotResponse in
         let request = try req.content.decode(SnapshotRequest.self)
-        let orchestrator = req.application.storage.orchestrator
+        let orchestrator = req.application.orchestrator
         
         if let snapshot = orchestrator.captureSnapshot(
             appBundleId: request.appBundleId,
@@ -209,7 +206,7 @@ func routes(_ app: Application) throws {
     // Learn signature
     api.post("learn") { req -> LearnResponse in
         let request = try req.content.decode(LearnRequest.self)
-        let orchestrator = req.application.storage.orchestrator
+        let orchestrator = req.application.orchestrator
         
         await orchestrator.learnSignature(
             signature: request.signature,
@@ -435,13 +432,6 @@ struct UIScoutErrorMiddleware: Middleware {
                     code: abort.status.code.description
                 ))
                 
-            case let validationError as ValidationError:
-                response = Response(status: .badRequest)
-                try? response.content.encode(ErrorResponse(
-                    message: validationError.localizedDescription,
-                    code: "validation_error"
-                ))
-                
             default:
                 response = Response(status: .internalServerError)
                 try? response.content.encode(ErrorResponse(
@@ -453,4 +443,11 @@ struct UIScoutErrorMiddleware: Middleware {
             return request.eventLoop.makeSucceededFuture(response)
         }
     }
+}
+
+// MARK: - Simple Types
+
+struct HealthResponse: Content {
+    let status: String
+    let timestamp: Double
 }

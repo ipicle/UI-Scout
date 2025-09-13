@@ -1,4 +1,4 @@
-# UI Scout - Production-Ready macOS UI Automation System
+# UI Scout - macOS UI Element Detection
 
 UI Scout is a sophisticated, confidence-based UI automation system designed for AI assistants. It provides reliable element discovery, signature-based tracking, and polite automation with sub-40ms performance targets.
 
@@ -36,16 +36,16 @@ UI Scout is a sophisticated, confidence-based UI automation system designed for 
 
 ### Prerequisites
 
-- macOS 12.0+ (Monterey or later)
+- macOS 13.0+ (Ventura or later)
 - Xcode Command Line Tools
-- Node.js 16+ 
+- (Optional) Node.js 16+ 
 - Accessibility permissions for your terminal/AI assistant
 
 ### Installation
 
-1. **Clone and Deploy**:
+1. **Deploy**:
    ```bash
-   cd /Users/petermsimon/Tools/AI_playground/ui-scout
+   # From repo root
    ./deploy.sh
    ```
 
@@ -55,45 +55,41 @@ UI Scout is a sophisticated, confidence-based UI automation system designed for 
 
 3. **Verify Installation**:
    ```bash
-   ui-scout --version
-   ui-scout discover  # Test element discovery
+   uisct status
    ```
 
 ### Basic Usage
 
-**Element Discovery**:
+**CLI Examples**:
 ```bash
-# Find all elements in active window
-ui-scout discover
+# Guided permission setup
+uisct setup
 
-# Find specific element
-ui-scout find "Submit button"
+# Find specific element type for an app
+uisct find --app com.apple.Safari --type reply --allow-peek
 
-# Get element signature for tracking
-ui-scout signature --element-id <id>
+# Observe events for a known element signature
+uisct observe --app com.apple.Safari --signature ./signature.json --duration 10
 ```
 
 **HTTP Service**:
 ```bash
-# Start service (runs on port 3847)
-ui-scout serve
+# Start service (port 8080)
+launchctl load ~/Library/LaunchAgents/com.uiscout.service.plist
 
-# Start with custom config
-ui-scout serve --config ~/.config/ui-scout/development.json
+# Health check
+curl http://127.0.0.1:8080/health
 ```
 
 **Testing Integration**:
 ```bash
-# Run the integration demo
-node examples/integration_demo.js
-
 # Run Swift tests
 swift test
 ```
 
 ## 🔧 Configuration
 
-Configuration files are stored in `~/.config/ui-scout/`:
+Configuration files (reserved for future use) can be stored in `~/.config/ui-scout/`:
 
 ```json
 {
@@ -118,23 +114,7 @@ Configuration files are stored in `~/.config/ui-scout/`:
 
 ## 🤖 AI Assistant Integration
 
-### MCP Configuration
-
-Add to your AI assistant's MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "ui-scout": {
-      "command": "node",
-      "args": ["/path/to/ui-scout/mcp-tool/build/index.js"],
-      "env": {
-        "UI_SCOUT_URL": "http://localhost:3847"
-      }
-    }
-  }
-}
-```
+MCP integration is not included in this repo. The HTTP service exposes a clean API that can be wrapped by an MCP tool.
 
 ### Available MCP Tools
 
@@ -316,22 +296,25 @@ launchctl load ~/Library/LaunchAgents/com.uiscout.service.plist
 
 ## 📚 API Reference
 
-### HTTP Endpoints
+### HTTP Endpoints (Prefix: `/api/v1`)
 
-- `GET /discover` - Discover all elements
-- `POST /find` - Find specific elements
-- `POST /click` - Click on elements
-- `POST /type` - Type text
-- `POST /signature` - Generate element signatures
 - `GET /health` - Service health check
+- `POST /api/v1/find` - Find specific elements
+- `POST /api/v1/after-send-diff` - Diff after action
+- `POST /api/v1/observe` - Server-Sent Events stream
+- `POST /api/v1/snapshot` - Capture element snapshot
+- `POST /api/v1/learn` - Store/pin/decay signatures
+- `GET /api/v1/status` - Service status
+- `GET /api/v1/signatures` - List signatures
 
 ### CLI Commands
 
-- `ui-scout discover [options]` - Element discovery
-- `ui-scout find <query> [options]` - Element search
-- `ui-scout serve [options]` - Start HTTP service
-- `ui-scout signature [options]` - Generate signatures
-- `ui-scout --help` - Show help
+- `uisct setup` - Interactive permission setup
+- `uisct status` - Show permissions/store status
+- `uisct find --app <bundle> --type <reply|input|session> [--allow-peek]`
+- `uisct observe --app <bundle> --signature <path> --duration <sec>`
+- `uisct after-send-diff --app <bundle> --pre-signature <path>`
+- `uisct snapshot --app <bundle> --signature <path>`
 
 ## 🤝 Contributing
 
@@ -358,8 +341,4 @@ Built with modern macOS frameworks:
 
 ---
 
-**Status**: Production-ready architecture with comprehensive testing and deployment automation.
-
-**Performance**: Achieves 15/40ms discovery targets and <5% CPU budget in real-world usage.
-
-**Integration**: Ready for AI assistant integration via MCP protocol.
+Status: Working core library, CLI, and HTTP service with alignment fixes. Performance targets are design goals; measure on your system.

@@ -1,41 +1,25 @@
-# UI Scout System - Implementation Complete
+# UI Scout System - Status
 
 ## 📁 Project Structure Summary
 
 ```
-/Users/petermsimon/Tools/AI_playground/ui-scout/
-├── 📄 README.md                    # Comprehensive documentation
-├── 📄 Package.swift                # Swift package configuration
-├── 📄 Makefile                     # Build automation
-├── 🔧 deploy.sh                    # Production deployment script
-├── 🔍 check.sh                     # System verification script
-│
-├── 📁 Sources/
-│   ├── UIScout/                    # Core Swift library (11 files)
-│   │   ├── Core/                   # Data models and main interfaces
-│   │   ├── Accessibility/          # macOS accessibility integration  
-│   │   ├── Discovery/              # Element finding algorithms
-│   │   ├── OCR/                    # Vision framework integration
-│   │   ├── Confidence/             # AI-powered scoring system
-│   │   ├── Signature/              # Element tracking signatures
-│   │   └── Store/                  # Caching and persistence
-│   └── CLI/                        # Command line interface
-│
-├── 📁 mcp-tool/                    # MCP integration layer
-│   ├── package.json                # Node.js dependencies
-│   ├── tsconfig.json              # TypeScript configuration
-│   └── src/                        # TypeScript source files
-│
-├── 📁 Tests/                       # Test suites
-│   └── UIScoutTests/               # Swift unit & integration tests
-│
-├── 📁 examples/                    # Usage demonstrations
-│   ├── basic_discovery.swift       # Swift usage examples
-│   └── integration_demo.js         # Node.js integration demo
-│
-└── 📁 config/                      # Configuration files
-    ├── ui-scout.json               # Production configuration
-    └── development.json            # Development settings
+├── README.md
+├── Package.swift
+├── Makefile
+├── deploy.sh
+├── check.sh
+├── Sources/
+│   ├── UIScoutCore/                # Core library (AX, OCR, scoring, store)
+│   ├── cmd/uisct-cli               # CLI entrypoint
+│   └── svc/http                    # Vapor HTTP service
+├── Tests/
+│   └── UIScoutTests/
+├── examples/
+│   ├── basic_discovery.swift
+│   └── integration_demo.js (example only)
+└── config/
+    ├── ui-scout.json
+    └── development.json
 ```
 
 ## ✅ Implemented Components
@@ -49,21 +33,16 @@
 - **Performance Optimization**: <5% CPU budget, sub-40ms response times
 
 ### HTTP Service Layer
-- **Vapor-based REST API**: Production-ready HTTP service
-- **RESTful endpoints**: /discover, /find, /click, /type, /signature, /health
-- **Error handling**: Comprehensive error responses and logging
-- **Configuration management**: JSON-based settings with environment support
+- Vapor-based REST API exposing:
+  - `GET /health`
+  - `POST /api/v1/find`, `POST /api/v1/after-send-diff`, `POST /api/v1/observe`
+  - `POST /api/v1/snapshot`, `POST /api/v1/learn`, `GET /api/v1/status`, `GET /api/v1/signatures`
 
 ### MCP Integration
-- **TypeScript wrapper**: Full Model Context Protocol implementation
-- **AI Assistant ready**: Plug-and-play integration for Claude Desktop and similar
-- **Tool definitions**: ui_discover, ui_find, ui_click, ui_type, ui_signature
-- **HTTP client**: Robust communication with Swift service layer
+- Not included in this repository. The HTTP API can be wrapped by an MCP tool.
 
 ### CLI Tools
-- **Command interface**: ui-scout discover, find, serve, signature commands
-- **Testing utilities**: Built-in health checks and performance testing
-- **Configuration support**: Multiple config file support
+- Async CLI with subcommands: `setup`, `status`, `find`, `observe`, `after-send-diff`, `snapshot`, `learn`.
 
 ### Production Infrastructure
 - **Deployment automation**: Complete deployment script with dependency checking
@@ -82,36 +61,12 @@
 | CPU Budget | <5% | ✅ Event-driven, caching architecture |
 | Memory Usage | <50MB | ✅ Efficient data structures |
 
-## 🔧 Next Steps for Activation
+## 🔧 Next Steps
 
-### 1. Build and Deploy (5 minutes)
-```bash
-cd /Users/petermsimon/Tools/AI_playground/ui-scout
-./deploy.sh
-```
-
-### 2. Grant Permissions (2 minutes)
-- System Preferences → Security & Privacy → Privacy → Accessibility
-- Add Terminal (or your preferred terminal app)
-- Add any AI assistant applications you plan to use
-
-### 3. Verify Installation (1 minute)
-```bash
-./check.sh
-ui-scout discover  # Test element discovery
-```
-
-### 4. Start Service (30 seconds)
-```bash
-ui-scout serve  # Manual start
-# OR
-launchctl load ~/Library/LaunchAgents/com.uiscout.service.plist  # Auto-start
-```
-
-### 5. Test Integration (2 minutes)
-```bash
-node examples/integration_demo.js
-```
+1. Deploy: `./deploy.sh`
+2. Run guided setup: `uisct setup`
+3. Start service: `launchctl load ~/Library/LaunchAgents/com.uiscout.service.plist`
+4. Verify: `curl http://127.0.0.1:8080/health` and `uisct status`
 
 ## 🤖 AI Assistant Integration
 
@@ -163,16 +118,8 @@ This implementation provides:
 
 ---
 
-## 🎉 Project Status: COMPLETE ✅
+## 🎉 Current Status
 
-This is a **production-ready, comprehensive UI automation system** that addresses the real challenges of reliable UI automation:
-
-- **Accuracy**: Confidence-based scoring eliminates false positives
-- **Reliability**: Signature tracking survives UI changes
-- **Performance**: Achieves aggressive timing targets 
-- **Integration**: Drop-in ready for AI assistants
-- **Maintenance**: Self-contained with monitoring and updates
-
-The system is ready for immediate use and provides a solid foundation for advanced UI automation scenarios.
-
-Run `./check.sh` to verify everything is working correctly!
+- Core library, CLI, and HTTP service are implemented and aligned.
+- Docs and scripts updated to match actual binaries and endpoints.
+- Next improvements recommended below (see repository README for details).

@@ -83,8 +83,11 @@ struct FindCommand: AsyncParsableCommand {
         
         guard permissionStatus.canOperate else {
             if json {
-                let error = ["error": "Insufficient permissions", "needs": permissionStatus.needsPrompt]
-                printJSON(error)
+                let error: [String: Any] = [
+                    "error": "Insufficient permissions",
+                    "needs": permissionStatus.needsPrompt
+                ]
+                printJSONAny(error)
             } else {
                 print("❌ Cannot operate: missing permissions")
                 print("Needs: \(permissionStatus.needsPrompt.joined(separator: ", "))")
@@ -256,12 +259,12 @@ struct ObserveCommand: AsyncParsableCommand {
                 eventCount += 1
                 
                 if json {
-                    let eventDict = [
+                    let eventDict: [String: Any] = [
                         "timestamp": event.timestamp.timeIntervalSince1970,
                         "notification": event.notification,
                         "app": event.appBundleId
                     ]
-                    printJSON(eventDict)
+                    printJSONAny(eventDict)
                 } else if stream {
                     let timeString = DateFormatter().string(from: event.timestamp)
                     print("[\(timeString)] \(event.notification)")
@@ -513,7 +516,7 @@ struct StatusCommand: AsyncParsableCommand {
         let stats = await store.getStatistics()
         
         if json {
-            let status = [
+            let status: [String: Any] = [
                 "permissions": [
                     "accessibility": permissionStatus.accessibility,
                     "screen_recording": permissionStatus.screenRecording,
@@ -531,7 +534,7 @@ struct StatusCommand: AsyncParsableCommand {
                     "pinned_signatures": stats.pinnedSignatureCount
                 ]
             ]
-            printJSON(status)
+            printJSONAny(status)
         } else {
             print("🎯 UIScout Status")
             print("\nPermissions:")
@@ -598,9 +601,22 @@ private func printJSON<T: Encodable>(_ value: T) {
     }
 }
 
+// Helper for printing heterogenous dictionaries/arrays
+private func printJSONAny(_ value: Any) {
+    guard JSONSerialization.isValidJSONObject(value) else {
+        print("Error: value is not a valid JSON object")
+        return
+    }
+    do {
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+        if let string = String(data: data, encoding: .utf8) {
+            print(string)
+        }
+    } catch {
+        print("Error serializing JSON: \(error)")
+    }
+}
+
 // MARK: - Extensions
 
-extension ElementSignature: Codable {}
-extension ElementSnapshot: Codable {}
-extension Evidence: Codable {}
-extension ElementResult: Codable {}
+// Codable conformances are already declared in UIScoutCore

@@ -1,10 +1,11 @@
 import Foundation
 import ApplicationServices
+import AppKit
 import Logging
 
-public class AXObserver {
+public class AXEventObserver {
     private let logger = Logger(label: "ui-scout.ax-observer")
-    private var observers: [String: AXObserver] = [:]
+    private var observers: [String: ApplicationServices.AXObserver] = [:]
     private var callbacks: [String: [(String, AXUIElement) -> Void]] = [:]
     
     public init() {}
@@ -20,18 +21,18 @@ public class AXObserver {
         let runningApps = NSWorkspace.shared.runningApplications
         guard let app = runningApps.first(where: { $0.bundleIdentifier == appBundleId }),
               let pid = app.processIdentifier as pid_t? else {
-            throw AXError.appNotFound(appBundleId)
+            throw UIScoutError.appNotFound(appBundleId)
         }
         
         let observerKey = "\(appBundleId)-\(pid)"
         
         // Create observer if it doesn't exist
         if observers[observerKey] == nil {
-            var observer: AXObserver?
+            var observer: ApplicationServices.AXObserver?
             let result = AXObserverCreate(pid, observerCallback, &observer)
             
             guard result == .success, let createdObserver = observer else {
-                throw AXError.failedToCreateObserver(result)
+                throw UIScoutError.failedToCreateObserver(result)
             }
             
             observers[observerKey] = createdObserver
@@ -46,14 +47,14 @@ public class AXObserver {
         }
         
         guard let axObserver = observers[observerKey] else {
-            throw AXError.observerNotFound
+            throw UIScoutError.observerNotFound
         }
         
         // Add callback
         callbacks[observerKey]?.append(callback)
         
         // Register for notifications
-        for notification in notifications {
+    for notification in notifications {
             let result = AXObserverAddNotification(
                 axObserver,
                 element,
@@ -82,12 +83,12 @@ public class AXObserver {
         let commonNotifications = [
             kAXValueChangedNotification,
             kAXUIElementDestroyedNotification,
-            kAXChildrenChangedNotification,
+            "AXChildrenChanged",
             kAXFocusedUIElementChangedNotification
         ]
         
         for notification in commonNotifications {
-            AXObserverRemoveNotification(observer, element, notification)
+            AXObserverRemoveNotification(observer, element, notification as CFString)
         }
     }
     
@@ -114,7 +115,7 @@ public class AXObserver {
     
     // MARK: - Notification Handling
     
-    private func handleNotification(observer: AXObserver, element: AXUIElement, notification: String) {
+    func handleNotification(observer: ApplicationServices.AXObserver, element: AXUIElement, notification: String) {
         logger.debug("Received notification: \(notification)")
         
         // Find the observer key
@@ -163,9 +164,9 @@ public class AXObserver {
         try startObserving(
             appBundleId: appBundleId,
             element: element,
-            notifications: [kAXChildrenChangedNotification]
+            notifications: [String.axChildrenChanged]
         ) { notification, element in
-            if notification == kAXChildrenChangedNotification {
+            if notification == String.axChildrenChanged {
                 callback(element)
             }
         }
@@ -191,14 +192,14 @@ public class AXObserver {
 // MARK: - Observer Callback
 
 private func observerCallback(
-    observer: AXObserver,
+    observer: ApplicationServices.AXObserver,
     element: AXUIElement,
     notificationName: CFString,
     contextData: UnsafeMutableRawPointer?
 ) {
     guard let contextData = contextData else { return }
     
-    let axObserver = Unmanaged<AXObserver>.fromOpaque(contextData).takeUnretainedValue()
+    let axObserver = Unmanaged<AXEventObserver>.fromOpaque(contextData).takeUnretainedValue()
     let notification = notificationName as String
     
     axObserver.handleNotification(
@@ -210,23 +211,14 @@ private func observerCallback(
 
 // MARK: - Extended AX Error Types
 
-extension AXError {
-    static func failedToCreateObserver(_ axError: AXError) -> AXError {
-        return .failedToCreateObserver(axError)
-    }
-    
-    static let observerNotFound = AXError.observerNotFound
-    
-    case failedToCreateObserver(AXError)
-    case observerNotFound
-}
+// Error helpers now covered by UIScoutError
 
 // MARK: - Notification Constants Extension
 
 public extension String {
     // Common AX notifications
     static let axValueChanged = kAXValueChangedNotification
-    static let axChildrenChanged = kAXChildrenChangedNotification
+    static let axChildrenChanged = "AXChildrenChanged"
     static let axFocusedUIElementChanged = kAXFocusedUIElementChangedNotification
     static let axUIElementDestroyed = kAXUIElementDestroyedNotification
     static let axWindowCreated = kAXWindowCreatedNotification
@@ -258,13 +250,13 @@ public struct AXNotificationEvent {
 // MARK: - Event Stream
 
 public class AXEventStream {
-    private let observer: AXObserver
+    private let observer: AXEventObserver
     private var isActive = false
     private var events: [AXNotificationEvent] = []
     private let maxEvents: Int
     
     public init(maxEvents: Int = 100) {
-        self.observer = AXObserver()
+        self.observer = AXEventObserver()
         self.maxEvents = maxEvents
     }
     

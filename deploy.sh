@@ -37,10 +37,9 @@ check_requirements() {
         exit 1
     fi
     
-    # Check for Node.js
+    # Node.js is optional (only needed if using external MCP tooling)
     if ! command -v node &> /dev/null; then
-        log_error "Node.js is required but not installed. Please install Node.js."
-        exit 1
+        log_warn "Node.js not found. Skipping MCP/tooling steps (optional)."
     fi
     
     # Check macOS version
@@ -72,16 +71,30 @@ build_cli_tool() {
     log_info "Building CLI tool..."
     
     # Build the CLI executable
-    swift build -c release --product ui-scout-cli
+    swift build -c release --product uisct-cli
     
     # Copy to install directory (requires sudo)
-    if [ -f ".build/release/ui-scout-cli" ]; then
+    if [ -f ".build/release/uisct-cli" ]; then
         log_info "Installing CLI tool to $INSTALL_DIR..."
-        sudo cp .build/release/ui-scout-cli "$INSTALL_DIR/ui-scout"
-        sudo chmod +x "$INSTALL_DIR/ui-scout"
-        log_info "CLI tool installed as 'ui-scout'"
+        sudo cp .build/release/uisct-cli "$INSTALL_DIR/uisct"
+        sudo chmod +x "$INSTALL_DIR/uisct"
+        log_info "CLI tool installed as 'uisct'"
     else
         log_error "CLI tool binary not found after build."
+        exit 1
+    fi
+}
+
+build_service() {
+    log_info "Building HTTP service..."
+    swift build -c release --product uisct-service
+    if [ -f ".build/release/uisct-service" ]; then
+        log_info "Installing service to $INSTALL_DIR..."
+        sudo cp .build/release/uisct-service "$INSTALL_DIR/uisct-service"
+        sudo chmod +x "$INSTALL_DIR/uisct-service"
+        log_info "Service installed as 'uisct-service'"
+    else
+        log_error "Service binary not found after build."
         exit 1
     fi
 }
@@ -132,10 +145,7 @@ create_launch_agent() {
     <string>com.uiscout.service</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$INSTALL_DIR/ui-scout</string>
-        <string>serve</string>
-        <string>--config</string>
-        <string>$CONFIG_DIR/ui-scout.json</string>
+        <string>$INSTALL_DIR/uisct-service</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -156,17 +166,16 @@ test_installation() {
     log_info "Testing installation..."
     
     # Test CLI tool
-    if command -v ui-scout &> /dev/null; then
+    if command -v uisct &> /dev/null; then
         log_info "✓ CLI tool is accessible"
-        ui-scout --version || log_warn "Version command failed"
+        uisct --help >/dev/null 2>&1 || log_warn "CLI help command failed"
     else
         log_error "CLI tool not found in PATH"
         exit 1
     fi
     
-    # Test service startup (briefly)
-    log_info "Testing service startup..."
-    timeout 5s ui-scout serve --test || log_warn "Service test failed or timed out"
+    # Inform about service (manual start/managed via launchd)
+    log_info "Service binary installed as 'uisct-service' (launchd-managed)."
     
     log_info "Installation test completed."
 }
@@ -175,10 +184,12 @@ show_usage_info() {
     log_info "=== UI Scout Installation Complete ==="
     echo ""
     echo "Usage:"
-    echo "  ui-scout discover              - Discover UI elements"
-    echo "  ui-scout find 'button text'   - Find specific element"
-    echo "  ui-scout serve                 - Start HTTP service"
-    echo "  ui-scout --help               - Show all options"
+    echo "  uisct status                  - Show permissions/store status"
+    echo "  uisct setup                   - Guided permission setup"
+    echo "  uisct find --app <bundle> --type <reply|input|session> [--allow-peek]"
+    echo "  uisct observe --app <bundle> --signature <path> --duration 10"
+    echo "  uisct after-send-diff --app <bundle> --pre-signature <path>"
+    echo "  (HTTP service runs as 'uisct-service' on port 8080)"
     echo ""
     echo "Configuration:"
     echo "  Config files: $CONFIG_DIR"
@@ -201,6 +212,7 @@ main() {
     check_requirements
     build_swift_library
     build_cli_tool
+    build_service
     install_node_dependencies
     setup_configuration
     create_launch_agent

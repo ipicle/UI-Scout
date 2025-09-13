@@ -1,4 +1,5 @@
 import Foundation
+import ApplicationServices
 import Logging
 
 // MARK: - App-Specific Integration Hints
@@ -184,8 +185,8 @@ public class RaycastIntegration: AppIntegration {
         case .reply:
             return ElementHints(
                 preferredRoles: [kAXScrollAreaRole, kAXGroupRole],
-                positionHints: [.center],
-                requiredAttributes: [kAXChildrenAttribute]
+                requiredAttributes: [kAXChildrenAttribute],
+                positionHints: [.center]
             )
             
         case .session:
@@ -255,8 +256,8 @@ public class VSCodeIntegration: AppIntegration {
         case .reply:
             return ElementHints(
                 preferredRoles: [kAXGroupRole, kAXScrollAreaRole],
-                positionHints: [.center, .right],
-                avoidRoles: [kAXToolbarRole, kAXMenuRole]
+                avoidRoles: [kAXToolbarRole, kAXMenuRole],
+                positionHints: [.center, .right]
             )
             
         case .session:
@@ -340,7 +341,7 @@ public class XcodeIntegration: AppIntegration {
     public let accessibilityQuality = AccessibilityQuality.good
     
     public let commonRoles: [String: ElementSignature.ElementType] = [
-        kAXTextViewRole: .input,
+        kAXTextAreaRole: .input,
         kAXScrollAreaRole: .reply,
         kAXOutlineRole: .session
     ]
@@ -351,14 +352,14 @@ public class XcodeIntegration: AppIntegration {
         switch elementType {
         case .input:
             return ElementHints(
-                preferredRoles: [kAXTextViewRole, kAXTextAreaRole],
+                preferredRoles: [kAXTextAreaRole, kAXTextAreaRole],
                 positionHints: [.center],
                 textPatterns: [".*editor.*", ".*source.*"]
             )
             
         case .reply:
             return ElementHints(
-                preferredRoles: [kAXScrollAreaRole, kAXTextViewRole],
+                preferredRoles: [kAXScrollAreaRole, kAXTextAreaRole],
                 positionHints: [.center, .bottom]
             )
             
@@ -407,7 +408,7 @@ public class ElectronIntegration: AppIntegration {
         // Electron apps have variable AX quality
         return ElementHints(
             preferredRoles: [kAXGroupRole, kAXUnknownRole],
-            avoidRoles: [kAXWebAreaRole] // Web content often has poor AX
+            avoidRoles: ["AXWebArea"] // Web content often has poor AX
         )
     }
     
@@ -436,7 +437,7 @@ public class WebBrowserIntegration: AppIntegration {
     
     public func getElementHints(for elementType: ElementSignature.ElementType) -> ElementHints {
         return ElementHints(
-            preferredRoles: [kAXWebAreaRole, kAXGroupRole],
+            preferredRoles: ["AXWebArea", kAXGroupRole],
             textPatterns: [".*input.*", ".*text.*", ".*chat.*"]
         )
     }
@@ -481,7 +482,7 @@ public class NativeAppIntegration: AppIntegration {
             
         case .reply:
             return ElementHints(
-                preferredRoles: [kAXScrollAreaRole, kAXTextViewRole, kAXGroupRole],
+                preferredRoles: [kAXScrollAreaRole, kAXTextAreaRole, kAXGroupRole],
                 avoidRoles: [kAXToolbarRole, kAXMenuRole]
             )
             

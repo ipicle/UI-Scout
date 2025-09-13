@@ -1,5 +1,6 @@
 import Foundation
 import ApplicationServices
+import AppKit
 import Logging
 
 public class AXClient {
@@ -13,7 +14,7 @@ public class AXClient {
         let runningApps = NSWorkspace.shared.runningApplications
         guard let app = runningApps.first(where: { $0.bundleIdentifier == bundleId }),
               let pid = app.processIdentifier as pid_t? else {
-            throw AXError.appNotFound(bundleId)
+            throw UIScoutError.appNotFound(bundleId)
         }
         
         let appElement = AXUIElementCreateApplication(pid)
@@ -21,7 +22,7 @@ public class AXClient {
         let result = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef)
         
         guard result == .success, let windows = windowsRef as? [AXUIElement] else {
-            throw AXError.failedToGetWindows(result)
+            throw UIScoutError.failedToGetWindows(result)
         }
         
         return windows
@@ -35,7 +36,7 @@ public class AXClient {
             if result == .attributeUnsupported || result == .noValue {
                 return nil
             }
-            throw AXError.failedToGetAttribute(attribute, result)
+            throw UIScoutError.failedToGetAttribute(attribute, result)
         }
         
         return valueRef as? T
@@ -44,7 +45,7 @@ public class AXClient {
     public func setAttribute<T>(_ element: AXUIElement, _ attribute: String, value: T) throws {
         let result = AXUIElementSetAttributeValue(element, attribute as CFString, value as CFTypeRef)
         guard result == .success else {
-            throw AXError.failedToSetAttribute(attribute, result)
+            throw UIScoutError.failedToSetAttribute(attribute, result)
         }
     }
     
@@ -82,24 +83,24 @@ public class AXClient {
     }
     
     public func getMinimalAttributes(for element: AXUIElement) -> MinimalAttributes {
-        let role = try? getAttribute(element, kAXRoleAttribute, as: String.self) ?? "Unknown"
-        let subrole = try? getAttribute(element, kAXSubroleAttribute, as: String.self)
+    let role = try? getAttribute(element, "AXRole", as: String.self) ?? "Unknown"
+    let subrole = try? getAttribute(element, "AXSubrole", as: String.self)
         
         var frame = CGRect.zero
-        if let frameValue = try? getAttribute(element, kAXFrameAttribute, as: AXValue.self) {
+    if let frameValue = try? getAttribute(element, "AXFrame", as: AXValue.self) {
             AXValueGetValue(frameValue, .cgRect, &frame)
         }
         
-        let value = try? getAttribute(element, kAXValueAttribute, as: String.self)
+    let value = try? getAttribute(element, "AXValue", as: String.self)
         
         var childCount = 0
-        if let children = try? getAttribute(element, kAXChildrenAttribute, as: [AXUIElement].self) {
+    if let children = try? getAttribute(element, "AXChildren", as: [AXUIElement].self) {
             childCount = children.count
         }
         
-        let isEnabled = (try? getAttribute(element, kAXEnabledAttribute, as: Bool.self)) ?? true
-        let isFocused = (try? getAttribute(element, kAXFocusedAttribute, as: Bool.self)) ?? false
-        let parent = try? getAttribute(element, kAXParentAttribute, as: AXUIElement.self)
+    let isEnabled = (try? getAttribute(element, "AXEnabled", as: Bool.self)) ?? true
+    let isFocused = (try? getAttribute(element, "AXFocused", as: Bool.self)) ?? false
+    let parent = try? getAttribute(element, "AXParent", as: AXUIElement.self)
         
         return MinimalAttributes(
             role: role,
@@ -124,14 +125,14 @@ public class AXClient {
             let attrs = getMinimalAttributes(for: element)
             
             // If this is a text element, count its length
-            if attrs.role == kAXStaticTextRole {
+            if attrs.role == "AXStaticText" {
                 if let text = attrs.value {
                     totalLength += text.count
                 }
             }
             
             // Traverse children
-            if let children = try? getAttribute(element, kAXChildrenAttribute, as: [AXUIElement].self) {
+            if let children = try? getAttribute(element, "AXChildren", as: [AXUIElement].self) {
                 for child in children {
                     traverseForText(child)
                     if totalLength >= maxLength { break }
@@ -175,8 +176,8 @@ public class AXClient {
     // MARK: - Sibling Role Analysis
     
     public func getSiblingRoles(for element: AXUIElement) -> [String] {
-        guard let parent = try? getAttribute(element, kAXParentAttribute, as: AXUIElement.self),
-              let siblings = try? getAttribute(parent, kAXChildrenAttribute, as: [AXUIElement].self) else {
+      guard let parent = try? getAttribute(element, "AXParent", as: AXUIElement.self),
+          let siblings = try? getAttribute(parent, "AXChildren", as: [AXUIElement].self) else {
             return []
         }
         
@@ -188,30 +189,33 @@ public class AXClient {
     // MARK: - Element Focus and Interaction
     
     public func focusElement(_ element: AXUIElement) throws {
-        let result = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+    let result = AXUIElementSetAttributeValue(element, "AXFocused" as CFString, kCFBooleanTrue)
         guard result == .success else {
-            throw AXError.failedToFocus(result)
+            throw UIScoutError.failedToFocus(result)
         }
     }
     
     public func performAction(_ element: AXUIElement, action: String) throws {
         let result = AXUIElementPerformAction(element, action as CFString)
         guard result == .success else {
-            throw AXError.failedToPerformAction(action, result)
+            throw UIScoutError.failedToPerformAction(action, result)
         }
     }
 }
 
 // MARK: - AX Error Types
 
-public enum AXError: Error, LocalizedError {
+// Use a distinct error type to avoid clashing with ApplicationServices.AXError
+public enum UIScoutError: Error, LocalizedError {
     case appNotFound(String)
-    case failedToGetWindows(AXError)
-    case failedToGetAttribute(String, AXError)
-    case failedToSetAttribute(String, AXError)
-    case failedToFocus(AXError)
-    case failedToPerformAction(String, AXError)
+    case failedToGetWindows(ApplicationServices.AXError)
+    case failedToGetAttribute(String, ApplicationServices.AXError)
+    case failedToSetAttribute(String, ApplicationServices.AXError)
+    case failedToFocus(ApplicationServices.AXError)
+    case failedToPerformAction(String, ApplicationServices.AXError)
     case permissionDenied
+    case failedToCreateObserver(ApplicationServices.AXError)
+    case observerNotFound
     
     public var errorDescription: String? {
         switch self {
@@ -229,13 +233,18 @@ public enum AXError: Error, LocalizedError {
             return "Failed to perform action \(action): \(axError)"
         case .permissionDenied:
             return "Accessibility permissions denied"
+        case .failedToCreateObserver(let axError):
+            return "Failed to create AX observer: \(axError)"
+        case .observerNotFound:
+            return "AX observer not found"
         }
     }
 }
 
 // MARK: - Extensions
 
-extension AXError: CustomStringConvertible {
+// Provide readable description for the system AX error type
+extension ApplicationServices.AXError: CustomStringConvertible {
     public var description: String {
         switch self {
         case .success: return "success"

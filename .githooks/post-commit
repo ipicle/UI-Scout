@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fast, safe post-commit: avoid hangs in GUI (e.g., VS Code), be non-interactive, and no-op when unavailable.
+
+# Skip in non-target branches
+branch="$(git rev-parse --abbrev-ref HEAD)"
+[[ "$branch" == "main" ]] || exit 0
+
+# Skip when running inside VS Code's Git integration to avoid blocking the commit UI
+if [[ -n "${VSCODE_GIT_IPC_HANDLE-}" || -n "${VSCODE_PID-}" ]]; then
+	exit 0
+fi
+
+# Do not prompt for credentials in hooks; fail fast if auth is needed
+export GIT_TERMINAL_PROMPT=0
+
+# Ensure the expected remote exists; otherwise, quietly skip
+if ! git remote get-url origin >/dev/null 2>&1; then
+	exit 0
+fi
+
+# Fetch quietly; if unreachable, don't block the commit
+git fetch --quiet --prune origin || exit 0
+
+# Rebase local commits onto remote main (keeps history linear; auto-stashes WIP)
+# If there are conflicts or rebase fails, skip pushing and exit cleanly
+git rebase --rebase-merges --autostash origin/main || exit 0
+
+# Push (fast-forward after successful rebase); quiet and non-blocking on failure
+git push --quiet origin HEAD || exit 0

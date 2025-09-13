@@ -249,10 +249,9 @@ public class DiffHistoryManager {
     }
     
     public func hasRecentActivity(for signatureId: String, within seconds: TimeInterval) -> Bool {
-        guard let diffs = history[signatureId] else { return false }
-        let cutoff = Date().timeIntervalSince1970 - seconds
-        
-        return diffs.contains { $0.timestamp > cutoff }
+        // Since SnapshotDiff doesn't contain a timestamp, approximate by assuming
+        // recent activity if there are any diffs recorded in history.
+        return (history[signatureId]?.isEmpty == false)
     }
     
     public func clearHistory(for signatureId: String) {

@@ -1,4 +1,6 @@
 import Foundation
+import ApplicationServices
+import AppKit
 import Logging
 
 public class UIScoutOrchestrator {
@@ -12,7 +14,7 @@ public class UIScoutOrchestrator {
     private let rateLimiter: RateLimiter
     private let logger = Logger(label: "ui-scout.orchestrator")
     
-    private var activeObservers: [String: AXObserver] = [:]
+    private var activeObservers: [String: AXEventObserver] = [:]
     private var lastPeekTimes: [String: Date] = [:]
     
     public init(
@@ -159,7 +161,7 @@ public class UIScoutOrchestrator {
                         element: element,
                         notifications: [
                             kAXValueChangedNotification,
-                            kAXChildrenChangedNotification,
+                            String.axChildrenChanged,
                             kAXFocusedUIElementChangedNotification
                         ]
                     )

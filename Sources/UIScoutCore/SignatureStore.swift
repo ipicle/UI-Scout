@@ -64,7 +64,7 @@ public class SignatureStore {
                 table.column("confidence", .double).notNull()
                 table.column("timestamp", .double).notNull()
                 
-                table.foreignKey(["signature_id"], references: "signatures", ["id"], onDelete: .cascade)
+                table.foreignKey(["signature_id"], references: "signatures", columns: ["id"], onDelete: .cascade)
             }
             
             // History table for behavioral patterns
@@ -77,7 +77,7 @@ public class SignatureStore {
                 table.column("success", .boolean).notNull()
                 table.column("timestamp", .double).notNull()
                 
-                table.foreignKey(["signature_id"], references: "signatures", ["id"], onDelete: .cascade)
+                table.foreignKey(["signature_id"], references: "signatures", columns: ["id"], onDelete: .cascade)
             }
             
             // Indexes for performance
@@ -93,7 +93,7 @@ public class SignatureStore {
     public func storeSignature(_ signature: ElementSignature) async {
         do {
             try await dbQueue.write { [weak self] db in
-                let signatureRecord = try SignatureRecord(from: signature)
+                var signatureRecord = try SignatureRecord(from: signature)
                 try signatureRecord.save(db)
                 self?.logger.debug("Stored signature \(signatureRecord.id)")
             }
@@ -105,7 +105,7 @@ public class SignatureStore {
     public func updateSignature(_ signature: ElementSignature) async {
         do {
             try await dbQueue.write { [weak self] db in
-                let signatureRecord = try SignatureRecord(from: signature)
+                var signatureRecord = try SignatureRecord(from: signature)
                 signatureRecord.updatedAt = Date().timeIntervalSince1970
                 try signatureRecord.update(db)
                 self?.logger.debug("Updated signature \(signatureRecord.id)")
@@ -163,10 +163,10 @@ public class SignatureStore {
     
     public func pinSignature(_ signature: ElementSignature) async {
         do {
-            try await dbQueue.write { db in
+        try await dbQueue.write { db in
                 try db.execute(
                     sql: "UPDATE signatures SET is_pinned = true WHERE id = ?",
-                    arguments: [generateSignatureId(signature)]
+            arguments: [self.generateSignatureId(signature)]
                 )
             }
         } catch {
@@ -186,10 +186,10 @@ public class SignatureStore {
     
     public func removeSignature(_ signature: ElementSignature) async {
         do {
-            try await dbQueue.write { db in
+        try await dbQueue.write { db in
                 try db.execute(
                     sql: "DELETE FROM signatures WHERE id = ?",
-                    arguments: [generateSignatureId(signature)]
+            arguments: [self.generateSignatureId(signature)]
                 )
             }
         } catch {
@@ -201,9 +201,9 @@ public class SignatureStore {
     
     public func recordEvidence(_ evidence: Evidence, for signature: ElementSignature) async {
         do {
-            try await dbQueue.write { [weak self] db in
-                let evidenceRecord = EvidenceRecord(
-                    signatureId: generateSignatureId(signature),
+        try await dbQueue.write { [weak self] db in
+                var evidenceRecord = EvidenceRecord(
+            signatureId: self?.generateSignatureId(signature) ?? "",
                     evidence: evidence
                 )
                 try evidenceRecord.save(db)
@@ -219,9 +219,9 @@ public class SignatureStore {
         limit: Int = 10
     ) async -> [Evidence] {
         do {
-            return try await dbQueue.read { db in
+        return try await dbQueue.read { db in
                 let records = try EvidenceRecord
-                    .filter(Column("signature_id") == generateSignatureId(signature))
+            .filter(Column("signature_id") == self.generateSignatureId(signature))
                     .order(Column("timestamp").desc)
                     .limit(limit)
                     .fetchAll(db)
@@ -244,9 +244,9 @@ public class SignatureStore {
         success: Bool
     ) async {
         do {
-            try await dbQueue.write { db in
-                let historyRecord = BehavioralHistoryRecord(
-                    signatureId: generateSignatureId(signature),
+        try await dbQueue.write { db in
+                var historyRecord = BehavioralHistoryRecord(
+            signatureId: self.generateSignatureId(signature),
                     action: action,
                     beforeSnapshot: beforeSnapshot,
                     afterSnapshot: afterSnapshot,
@@ -260,14 +260,14 @@ public class SignatureStore {
         }
     }
     
-    public func getBehavioralHistory(
+    private func getBehavioralHistory(
         for signature: ElementSignature,
         limit: Int = 20
     ) async -> [BehavioralHistoryRecord] {
         do {
             return try await dbQueue.read { db in
                 try BehavioralHistoryRecord
-                    .filter(Column("signature_id") == generateSignatureId(signature))
+                    .filter(Column("signature_id") == self.generateSignatureId(signature))
                     .order(Column("timestamp").desc)
                     .limit(limit)
                     .fetchAll(db)

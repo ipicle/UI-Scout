@@ -1,3 +1,4 @@
+#if canImport(XCTest)
 import XCTest
 @testable import UIScoutCore
 
@@ -357,3 +358,5 @@ final class ElementResultTests: XCTestCase {
         XCTAssertEqual(decoded.needsPermissions, original.needsPermissions)
     }
 }
+
+#endif

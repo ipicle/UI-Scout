@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import Crypto
 
 // MARK: - Core Data Models
 
@@ -89,8 +89,10 @@ public struct ElementSignature: Codable, Hashable {
     
     public static func generateFrameHash(width: Int, height: Int, x: Int, y: Int) -> String {
         let frameString = "w\(width)-h\(height)-x\(x)-y\(y)"
-        let hash = SHA1.hash(data: Data(frameString.utf8))
-        return hash.compactMap { String(format: "%02x", $0) }.joined()[..<8].description + "@sha1"
+        let digest = Insecure.SHA1.hash(data: Data(frameString.utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        let short = String(hex.prefix(8))
+        return short + "@sha1"
     }
 }
 
