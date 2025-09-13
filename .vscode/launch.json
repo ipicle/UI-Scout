@@ -1,0 +1,40 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:UI-Scout}",
+            "name": "Debug uisct-cli",
+            "program": "${workspaceFolder:UI-Scout}/.build/debug/uisct-cli",
+            "preLaunchTask": "swift: Build Debug uisct-cli"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:UI-Scout}",
+            "name": "Release uisct-cli",
+            "program": "${workspaceFolder:UI-Scout}/.build/release/uisct-cli",
+            "preLaunchTask": "swift: Build Release uisct-cli"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:UI-Scout}",
+            "name": "Debug uisct-service",
+            "program": "${workspaceFolder:UI-Scout}/.build/debug/uisct-service",
+            "preLaunchTask": "swift: Build Debug uisct-service"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:UI-Scout}",
+            "name": "Release uisct-service",
+            "program": "${workspaceFolder:UI-Scout}/.build/release/uisct-service",
+            "preLaunchTask": "swift: Build Release uisct-service"
+        }
+    ]
+}

@@ -1,0 +1,59 @@
+{
+  "server": {
+    "port": 3847,
+    "host": "localhost",
+    "max_connections": 10,
+    "timeout_ms": 5000
+  },
+  "performance": {
+    "discovery_timeout_ms": 40,
+    "signature_timeout_ms": 15,
+    "cpu_budget_percent": 5,
+    "max_cache_size": 1000,
+    "cache_ttl_ms": 300000
+  },
+  "confidence": {
+    "text_match_weight": 0.4,
+    "spatial_weight": 0.2,
+    "role_weight": 0.2,
+    "context_weight": 0.2,
+    "minimum_threshold": 0.3,
+    "high_confidence_threshold": 0.8
+  },
+  "ocr": {
+    "enabled": true,
+    "language": "en",
+    "recognition_level": "accurate",
+    "max_image_size": 2048
+  },
+  "accessibility": {
+    "respect_privacy": true,
+    "skip_hidden_elements": true,
+    "max_tree_depth": 10,
+    "include_system_elements": false
+  },
+  "signature": {
+    "spatial_radius": 50,
+    "max_contextual_elements": 10,
+    "include_visual_markers": true,
+    "hierarchical_depth": 3
+  },
+  "automation": {
+    "polite_delay_ms": 100,
+    "verify_actions": true,
+    "max_retry_attempts": 3,
+    "safe_mode": true
+  },
+  "logging": {
+    "level": "info",
+    "file": "/tmp/ui-scout.log",
+    "max_file_size": "10MB",
+    "max_files": 5
+  },
+  "security": {
+    "require_user_approval": true,
+    "sandbox_mode": false,
+    "allowed_applications": [],
+    "blocked_applications": ["Keychain Access", "Terminal"]
+  }
+}

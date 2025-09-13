@@ -1,0 +1,35 @@
+{
+  "server": {
+    "port": 3847,
+    "host": "localhost",
+    "max_connections": 5,
+    "timeout_ms": 10000
+  },
+  "performance": {
+    "discovery_timeout_ms": 100,
+    "signature_timeout_ms": 50,
+    "cpu_budget_percent": 10,
+    "max_cache_size": 100,
+    "cache_ttl_ms": 60000
+  },
+  "confidence": {
+    "text_match_weight": 0.4,
+    "spatial_weight": 0.2,
+    "role_weight": 0.2,
+    "context_weight": 0.2,
+    "minimum_threshold": 0.2,
+    "high_confidence_threshold": 0.7
+  },
+  "logging": {
+    "level": "debug",
+    "file": "/tmp/ui-scout-dev.log",
+    "max_file_size": "5MB",
+    "max_files": 3
+  },
+  "security": {
+    "require_user_approval": false,
+    "sandbox_mode": true,
+    "allowed_applications": [],
+    "blocked_applications": ["Keychain Access", "Terminal", "Activity Monitor"]
+  }
+}
