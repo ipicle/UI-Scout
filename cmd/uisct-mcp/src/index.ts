@@ -37,12 +37,6 @@ class UIScoutMCPServer {
         capabilities: {
           tools: {},
         },
-      },
-      {
-        capabilities: {
-          experimental: {},
-          logging: {},
-        },
       }
     );
 
@@ -142,7 +136,7 @@ async function main(): Promise<void> {
 }
 
 // Only run if this is the main module
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (require.main === module) {
   main().catch((error) => {
     console.error('Unhandled error:', error);
     process.exit(1);

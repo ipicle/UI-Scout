@@ -80,11 +80,30 @@ public class SignatureStore {
                 table.foreignKey(["signature_id"], references: "signatures", columns: ["id"], onDelete: .cascade)
             }
             
-            // Indexes for performance
-            try db.create(index: "idx_signatures_app_type", on: "signatures", columns: ["app_bundle_id", "element_type"])
-            try db.create(index: "idx_signatures_stability", on: "signatures", columns: ["stability"])
-            try db.create(index: "idx_evidence_signature", on: "evidence", columns: ["signature_id", "timestamp"])
-            try db.create(index: "idx_history_signature", on: "behavioral_history", columns: ["signature_id", "timestamp"])
+            // Indexes for performance - handle existing indexes gracefully
+            do {
+                try db.create(index: "idx_signatures_app_type", on: "signatures", columns: ["app_bundle_id", "element_type"], ifNotExists: true)
+            } catch {
+                // Index already exists, ignore
+            }
+            
+            do {
+                try db.create(index: "idx_signatures_stability", on: "signatures", columns: ["stability"], ifNotExists: true)
+            } catch {
+                // Index already exists, ignore
+            }
+            
+            do {
+                try db.create(index: "idx_evidence_signature", on: "evidence", columns: ["signature_id", "timestamp"], ifNotExists: true)
+            } catch {
+                // Index already exists, ignore
+            }
+            
+            do {
+                try db.create(index: "idx_history_signature", on: "behavioral_history", columns: ["signature_id", "timestamp"], ifNotExists: true)
+            } catch {
+                // Index already exists, ignore
+            }
         }
     }
     
@@ -393,6 +412,26 @@ private struct SignatureRecord: Codable, FetchableRecord, MutablePersistableReco
         self.createdAt = Date().timeIntervalSince1970
         self.updatedAt = Date().timeIntervalSince1970
     }
+
+    // Ensure proper snake_case column mapping on insert/update
+    func encode(to container: inout PersistenceContainer) {
+        container["id"] = id
+        container["app_bundle_id"] = appBundleId
+        container["element_type"] = elementType
+        container["role"] = role
+        container["subroles"] = subroles
+        container["frame_hash"] = frameHash
+        container["path_hint"] = pathHint
+        container["sibling_roles"] = siblingRoles
+        container["read_only"] = readOnly
+        container["scrollable"] = scrollable
+        container["attrs"] = attrs
+        container["stability"] = stability
+        container["last_verified_at"] = lastVerifiedAt
+        container["is_pinned"] = isPinned
+        container["created_at"] = createdAt
+        container["updated_at"] = updatedAt
+    }
     
     func toElementSignature() throws -> ElementSignature {
         let decoder = JSONDecoder()
@@ -421,6 +460,27 @@ private struct SignatureRecord: Codable, FetchableRecord, MutablePersistableReco
             lastVerifiedAt: lastVerifiedAt
         )
     }
+    
+    // MARK: - GRDB Column Mapping
+    
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let appBundleId = Column("app_bundle_id")
+        static let elementType = Column("element_type")
+        static let role = Column(CodingKeys.role)
+        static let subroles = Column(CodingKeys.subroles)
+        static let frameHash = Column("frame_hash")
+        static let pathHint = Column("path_hint")
+        static let siblingRoles = Column("sibling_roles")
+        static let readOnly = Column("read_only")
+        static let scrollable = Column(CodingKeys.scrollable)
+        static let attrs = Column(CodingKeys.attrs)
+        static let stability = Column(CodingKeys.stability)
+        static let lastVerifiedAt = Column("last_verified_at")
+        static let isPinned = Column("is_pinned")
+        static let createdAt = Column("created_at")
+        static let updatedAt = Column("updated_at")
+    }
 }
 
 private struct EvidenceRecord: Codable, FetchableRecord, MutablePersistableRecord {
@@ -446,6 +506,19 @@ private struct EvidenceRecord: Codable, FetchableRecord, MutablePersistableRecor
         self.confidence = evidence.confidence
         self.timestamp = evidence.timestamp
     }
+
+    // Ensure proper snake_case column mapping on insert/update
+    func encode(to container: inout PersistenceContainer) {
+        container["id"] = id
+        container["signature_id"] = signatureId
+        container["method"] = method
+        container["heuristic_score"] = heuristicScore
+        container["diff_score"] = diffScore
+        container["ocr_change"] = ocrChange
+        container["notifications"] = notifications
+        container["confidence"] = confidence
+        container["timestamp"] = timestamp
+    }
     
     func toEvidence() -> Evidence {
         let decoder = JSONDecoder()
@@ -461,6 +534,20 @@ private struct EvidenceRecord: Codable, FetchableRecord, MutablePersistableRecor
             confidence: confidence,
             timestamp: timestamp
         )
+    }
+    
+    // MARK: - GRDB Column Mapping
+    
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let signatureId = Column("signature_id")
+        static let method = Column(CodingKeys.method)
+        static let heuristicScore = Column("heuristic_score")
+        static let diffScore = Column("diff_score")
+        static let ocrChange = Column("ocr_change")
+        static let notifications = Column(CodingKeys.notifications)
+        static let confidence = Column(CodingKeys.confidence)
+        static let timestamp = Column(CodingKeys.timestamp)
     }
 }
 
@@ -489,6 +576,29 @@ private struct BehavioralHistoryRecord: Codable, FetchableRecord, MutablePersist
         self.afterSnapshot = afterSnapshot?.jsonString()
         self.success = success
         self.timestamp = timestamp
+    }
+
+    // Ensure proper snake_case column mapping on insert/update
+    func encode(to container: inout PersistenceContainer) {
+        container["id"] = id
+        container["signature_id"] = signatureId
+        container["action"] = action
+        container["before_snapshot"] = beforeSnapshot
+        container["after_snapshot"] = afterSnapshot
+        container["success"] = success
+        container["timestamp"] = timestamp
+    }
+    
+    // MARK: - GRDB Column Mapping
+    
+    enum Columns {
+        static let id = Column(CodingKeys.id)
+        static let signatureId = Column("signature_id")
+        static let action = Column(CodingKeys.action)
+        static let beforeSnapshot = Column("before_snapshot")
+        static let afterSnapshot = Column("after_snapshot")
+        static let success = Column(CodingKeys.success)
+        static let timestamp = Column(CodingKeys.timestamp)
     }
 }
 

@@ -195,6 +195,12 @@ public class RaycastIntegration: AppIntegration {
                 positionHints: [.left, .right],
                 textPatterns: [".*history.*", ".*recent.*"]
             )
+        case .send:
+            return ElementHints(
+                preferredRoles: [kAXButtonRole],
+                positionHints: [.bottom, .right],
+                textPatterns: [".*send.*", ".*submit.*", ".*enter.*"]
+            )
         }
     }
     
@@ -209,6 +215,8 @@ public class RaycastIntegration: AppIntegration {
             adjusted += 0.05 // Response areas are generally reliable
         case .session:
             adjusted -= 0.05 // Session management varies by use case
+        case .send:
+            adjusted += 0.05 // Send buttons are typically clear
         }
         
         return min(adjusted, 1.0)
@@ -266,6 +274,12 @@ public class VSCodeIntegration: AppIntegration {
                 positionHints: [.left],
                 textPatterns: [".*explorer.*", ".*files.*"]
             )
+        case .send:
+            return ElementHints(
+                preferredRoles: [kAXButtonRole],
+                positionHints: [.right, .bottom],
+                textPatterns: [".*send.*", ".*submit.*", ".*run.*"]
+            )
         }
     }
     
@@ -280,6 +294,8 @@ public class VSCodeIntegration: AppIntegration {
             adjusted -= 0.1 // Chat responses can be tricky to identify
         case .session:
             adjusted += 0.1 // File explorer is generally reliable
+        case .send:
+            adjusted += 0.05
         }
         
         return min(adjusted, 1.0)
@@ -313,10 +329,19 @@ public class ChatGPTIntegration: AppIntegration {
     
     public func getElementHints(for elementType: ElementSignature.ElementType) -> ElementHints {
         // Web-based apps have very limited accessibility support
-        return ElementHints(
-            preferredRoles: [kAXGroupRole, kAXUnknownRole],
-            textPatterns: [".*chat.*", ".*message.*", ".*conversation.*"]
-        )
+        switch elementType {
+        case .send:
+            return ElementHints(
+                preferredRoles: [kAXButtonRole, kAXUnknownRole],
+                positionHints: [.right, .bottom],
+                textPatterns: [".*send.*", ".*submit.*"]
+            )
+        default:
+            return ElementHints(
+                preferredRoles: [kAXGroupRole, kAXUnknownRole],
+                textPatterns: [".*chat.*", ".*message.*", ".*conversation.*"]
+            )
+        }
     }
     
     public func adjustConfidenceScore(_ baseScore: Double, for elementType: ElementSignature.ElementType) -> Double {
@@ -369,6 +394,11 @@ public class XcodeIntegration: AppIntegration {
                 positionHints: [.left],
                 textPatterns: [".*navigator.*", ".*project.*"]
             )
+        case .send:
+            return ElementHints(
+                preferredRoles: [kAXButtonRole],
+                positionHints: [.right]
+            )
         }
     }
     
@@ -406,10 +436,19 @@ public class ElectronIntegration: AppIntegration {
     
     public func getElementHints(for elementType: ElementSignature.ElementType) -> ElementHints {
         // Electron apps have variable AX quality
-        return ElementHints(
-            preferredRoles: [kAXGroupRole, kAXUnknownRole],
-            avoidRoles: ["AXWebArea"] // Web content often has poor AX
-        )
+        switch elementType {
+        case .send:
+            return ElementHints(
+                preferredRoles: [kAXButtonRole, kAXUnknownRole],
+                positionHints: [.right, .bottom],
+                textPatterns: [".*send.*", ".*submit.*"]
+            )
+        default:
+            return ElementHints(
+                preferredRoles: [kAXGroupRole, kAXUnknownRole],
+                avoidRoles: ["AXWebArea"] // Web content often has poor AX
+            )
+        }
     }
     
     public func adjustConfidenceScore(_ baseScore: Double, for elementType: ElementSignature.ElementType) -> Double {
@@ -436,10 +475,19 @@ public class WebBrowserIntegration: AppIntegration {
     public let behaviorHints: [BehaviorHint] = []
     
     public func getElementHints(for elementType: ElementSignature.ElementType) -> ElementHints {
-        return ElementHints(
-            preferredRoles: ["AXWebArea", kAXGroupRole],
-            textPatterns: [".*input.*", ".*text.*", ".*chat.*"]
-        )
+        switch elementType {
+        case .send:
+            return ElementHints(
+                preferredRoles: [kAXButtonRole, kAXUnknownRole],
+                positionHints: [.right, .bottom],
+                textPatterns: [".*send.*", ".*submit.*"]
+            )
+        default:
+            return ElementHints(
+                preferredRoles: ["AXWebArea", kAXGroupRole],
+                textPatterns: [".*input.*", ".*text.*", ".*chat.*"]
+            )
+        }
     }
     
     public func adjustConfidenceScore(_ baseScore: Double, for elementType: ElementSignature.ElementType) -> Double {
@@ -490,6 +538,13 @@ public class NativeAppIntegration: AppIntegration {
             return ElementHints(
                 preferredRoles: [kAXOutlineRole, kAXListRole, kAXTableRole],
                 requiredAttributes: [kAXChildrenAttribute]
+            )
+        case .send:
+            return ElementHints(
+                preferredRoles: [kAXButtonRole],
+                requiredAttributes: [kAXEnabledAttribute],
+                positionHints: [.right, .bottom],
+                textPatterns: [".*send.*", ".*submit.*", ".*enter.*"]
             )
         }
     }

@@ -11,6 +11,7 @@ struct UIScoutCLI: AsyncParsableCommand {
         version: "1.0.0",
         subcommands: [
             FindCommand.self,
+            DiscoverChatCommand.self,
             ObserveCommand.self,
             AfterSendDiffCommand.self,
             SnapshotCommand.self,
@@ -49,7 +50,7 @@ struct FindCommand: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Application bundle identifier")
     var app: String
     
-    @Option(name: .shortAndLong, help: "Element type (reply, input, session)")
+    @Option(name: .shortAndLong, help: "Element type (reply, input, session, send)")
     var type: String
     
     @Option(name: .long, help: "Minimum confidence threshold (0.0-1.0)")
@@ -65,7 +66,7 @@ struct FindCommand: AsyncParsableCommand {
     var json: Bool = false
     
     func validate() throws {
-        let validTypes = ["reply", "input", "session"]
+    let validTypes = ["reply", "input", "session", "send"]
         guard validTypes.contains(type.lowercased()) else {
             throw ValidationError("Invalid element type. Must be one of: \(validTypes.joined(separator: ", "))")
         }
@@ -169,6 +170,91 @@ struct FindCommand: AsyncParsableCommand {
                 print("Missing: \(result.needsPermissions.joined(separator: ", "))")
             }
         }
+    }
+}
+
+// MARK: - Discover Chat Command
+
+struct DiscoverChatCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "discover-chat",
+        abstract: "Discover standard chat UI elements (input, send, reply, session)"
+    )
+
+    @Option(name: .shortAndLong, help: "Application bundle identifier")
+    var app: String
+
+    @Option(name: .long, help: "Minimum confidence threshold (0.0-1.0)")
+    var minConfidence: Double = 0.6
+
+    @Flag(name: .long, help: "Allow polite peek if needed")
+    var allowPeek: Bool = false
+
+    @Flag(name: .long, help: "Output in JSON format")
+    var json: Bool = false
+
+    func run() async throws {
+        LoggingSystem.bootstrap(StreamLogHandler.standardOutput)
+
+        let bootstrap = UIScoutBootstrap()
+        let permissionStatus = try await bootstrap.initialize()
+        guard permissionStatus.canOperate else { throw ExitCode(1) }
+
+        // Initialize core components
+        let axClient = AXClient()
+        let elementFinder = ElementFinder(axClient: axClient)
+        let snapshotManager = SnapshotManager(axClient: axClient)
+        let scorer = ConfidenceScorer()
+        let ocrManager = OCRManager()
+        let store = try SignatureStore()
+        let rateLimiter = RateLimiter()
+
+        let stateMachineFactory = StateMachineFactory(
+            scorer: scorer,
+            snapshotManager: snapshotManager,
+            axClient: axClient,
+            ocrManager: ocrManager
+        )
+
+        let orchestrator = UIScoutOrchestrator(
+            axClient: axClient,
+            elementFinder: elementFinder,
+            snapshotManager: snapshotManager,
+            scorer: scorer,
+            ocrManager: ocrManager,
+            stateMachineFactory: stateMachineFactory,
+            store: store,
+            rateLimiter: rateLimiter
+        )
+
+        let policy = Policy(allowPeek: allowPeek, minConfidence: minConfidence)
+
+        // Find all four elements
+        async let input = orchestrator.findElement(appBundleId: app, elementType: .input, policy: policy)
+        async let send = orchestrator.findElement(appBundleId: app, elementType: .send, policy: policy)
+        async let reply = orchestrator.findElement(appBundleId: app, elementType: .reply, policy: policy)
+        async let session = orchestrator.findElement(appBundleId: app, elementType: .session, policy: policy)
+        let (inputR, sendR, replyR, sessionR) = await (input, send, reply, session)
+
+        let results = [
+            "input": inputR,
+            "send": sendR,
+            "reply": replyR,
+            "session": sessionR
+        ]
+
+        if json {
+            printJSON(results)
+        } else {
+            print("🔎 Chat UI Discovery for \(app)")
+            for (key, res) in results {
+                let ok = res.confidence >= minConfidence
+                let status = ok ? "✅" : "⚠️"
+                print("\(status) \(key): \(String(format: "%.2f", res.confidence)) role=\(res.elementSignature.role)")
+            }
+        }
+
+        orchestrator.cleanup()
     }
 }
 

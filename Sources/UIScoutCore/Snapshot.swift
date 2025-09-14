@@ -293,6 +293,10 @@ public class BehaviorAnalyzer {
             return detectInputPattern(diffs: recentDiffs)
         case .session:
             return detectSessionPattern(diffs: recentDiffs)
+        case .send:
+            // Send buttons themselves typically don't exhibit structural/text changes
+            // worth tracking; behavior is inferred via input/reply elements.
+            return nil
         }
     }
     

@@ -120,6 +120,9 @@ public class ConfidenceScorer {
             if abs(diff.childCountDelta) > 0 {
                 score += 0.3
             }
+        case .send:
+            // Send button likely has no diff-based textual changes; keep diff component minimal
+            score += 0.0
         }
         
         return min(score, 1.0)
@@ -239,6 +242,9 @@ public class ConfidenceScorer {
         case .session:
             // Session sidebars can be harder to identify
             modifier *= 0.95
+        case .send:
+            // Send button is typically easy to identify
+            modifier *= 1.05
         }
         
         return confidence * modifier

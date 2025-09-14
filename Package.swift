@@ -9,7 +9,8 @@ let package = Package(
     products: [
         .executable(name: "uisct-cli", targets: ["UIScoutCLI"]),
         .library(name: "UIScoutCore", targets: ["UIScoutCore"]),
-        .executable(name: "uisct-service", targets: ["UIScoutService"])
+    .executable(name: "uisct-service", targets: ["UIScoutService"]),
+    .executable(name: "uisct-testflow", targets: ["UIScoutTestflow"]) 
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.83.1"),
@@ -27,6 +28,14 @@ let package = Package(
                 .product(name: "Crypto", package: "swift-crypto")
             ],
             path: "Sources/UIScoutCore"
+        ),
+        .executableTarget(
+            name: "UIScoutTestflow",
+            dependencies: [
+                "UIScoutCore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "cmd/uisct-testflow"
         ),
         .executableTarget(
             name: "UIScoutCLI",

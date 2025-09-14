@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ui-scout": {
+      "command": "node",
+      "args": ["/Users/petermsimon/Tools/apps/UI-Scout/cmd/uisct-mcp/dist/index.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    }
+  }
+}

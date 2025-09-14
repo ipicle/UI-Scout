@@ -19,9 +19,12 @@ public class ElementFinder {
         let windows = try axClient.getElementsForApp(appBundleId)
         var candidates: [ScoredCandidate] = []
         
-        for window in windows {
+        for (index, window) in windows.enumerated() {
+            let title = (try? axClient.getAttribute(window, kAXTitleAttribute, as: String.self)) ?? ""
             let windowCandidates = findCandidatesInWindow(
                 window: window,
+                windowIndex: index,
+                windowTitle: title,
                 elementType: elementType,
                 appBundleId: appBundleId
             )
@@ -33,6 +36,8 @@ public class ElementFinder {
     
     private func findCandidatesInWindow(
         window: AXUIElement,
+        windowIndex: Int,
+        windowTitle: String,
         elementType: ElementSignature.ElementType,
         appBundleId: String
     ) -> [ScoredCandidate] {
@@ -54,7 +59,9 @@ public class ElementFinder {
                     element: element,
                     score: score,
                     elementType: elementType,
-                    appBundleId: appBundleId
+                    appBundleId: appBundleId,
+                    windowIndex: windowIndex,
+                    windowTitle: windowTitle
                 ))
             }
             
@@ -85,7 +92,52 @@ public class ElementFinder {
             return scoreInputCandidate(element: element, attrs: attrs, appBundleId: appBundleId)
         case .session:
             return scoreSessionCandidate(element: element, attrs: attrs, appBundleId: appBundleId)
+        case .send:
+            return scoreSendCandidate(element: element, attrs: attrs, appBundleId: appBundleId)
         }
+    }
+
+    // MARK: - Send Button Scoring
+
+    private func scoreSendCandidate(
+        element: AXUIElement,
+        attrs: AXClient.MinimalAttributes,
+        appBundleId: String
+    ) -> Double {
+        var score = 0.0
+        
+        // Role must be a button
+        if let role = attrs.role, role == kAXButtonRole {
+            score += 0.4
+        } else {
+            return 0.0
+        }
+        
+        // Title or label hints
+        if let title = try? axClient.getAttribute(element, kAXTitleAttribute, as: String.self) {
+            let lower = title.lowercased()
+            if ["send","submit","reply","post","enter"].contains(where: { lower.contains($0) }) || title == "→" || title == "▶" {
+                score += 0.3
+            }
+        }
+        
+        // Near an input field
+        if isNearInputField(element) {
+            score += 0.2
+        }
+        
+        // Position: often bottom-right area
+        let windowWidth = getWindowWidth(element)
+        let windowHeight = getWindowHeight(element)
+        if windowWidth > 0 && windowHeight > 0 {
+            let rx = attrs.frame.maxX / windowWidth
+            let ry = attrs.frame.maxY / windowHeight
+            if rx > 0.6 && ry > 0.6 { // bottom-right quadrant
+                score += 0.1
+            }
+        }
+        
+        return min(score, 1.0)
     }
     
     // MARK: - Reply Area Scoring
@@ -305,6 +357,21 @@ public class ElementFinder {
         
         return false
     }
+
+    private func isNearInputField(_ element: AXUIElement) -> Bool {
+        // Look for nearby text input siblings
+        guard let parent = try? axClient.getAttribute(element, kAXParentAttribute, as: AXUIElement.self),
+              let siblings = try? axClient.getAttribute(parent, kAXChildrenAttribute, as: [AXUIElement].self) else {
+            return false
+        }
+        for sibling in siblings {
+            if let role = try? axClient.getAttribute(sibling, kAXRoleAttribute, as: String.self),
+               role == kAXTextAreaRole || role == kAXTextFieldRole {
+                return true
+            }
+        }
+        return false
+    }
     
     private func supportsRowSelection(_ element: AXUIElement) -> Bool {
         return (try? axClient.getAttribute(element, kAXSelectedRowsAttribute, as: [AXUIElement].self)) != nil
@@ -469,17 +536,23 @@ public struct ScoredCandidate {
     public let score: Double
     public let elementType: ElementSignature.ElementType
     public let appBundleId: String
+    public let windowIndex: Int
+    public let windowTitle: String
     
     public init(
         element: AXUIElement,
         score: Double,
         elementType: ElementSignature.ElementType,
-        appBundleId: String
+        appBundleId: String,
+        windowIndex: Int,
+        windowTitle: String
     ) {
         self.element = element
         self.score = score
         self.elementType = elementType
         self.appBundleId = appBundleId
+        self.windowIndex = windowIndex
+        self.windowTitle = windowTitle
     }
     
     public func toElementSignature(axClient: AXClient) -> ElementSignature {
@@ -497,6 +570,10 @@ public struct ScoredCandidate {
         var signatureAttrs: [String: ElementSignature.AttributeValue?] = [:]
         signatureAttrs["AXValue"] = attrs.value.map { .string($0) }
         signatureAttrs["AXChildrenCount"] = .int(attrs.childCount)
+        signatureAttrs["AXWindowIndex"] = .int(windowIndex)
+        if !windowTitle.isEmpty {
+            signatureAttrs["AXWindowTitle"] = .string(windowTitle)
+        }
         
         return ElementSignature(
             appBundleId: appBundleId,

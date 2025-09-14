@@ -3,7 +3,7 @@ import Crypto
 
 // MARK: - Core Data Models
 
-public struct ElementSignature: Codable, Hashable {
+public struct ElementSignature: Codable, Hashable, Sendable {
     public let appBundleId: String
     public let elementType: ElementType
     public let role: String
@@ -17,13 +17,14 @@ public struct ElementSignature: Codable, Hashable {
     public var stability: Double
     public var lastVerifiedAt: TimeInterval
     
-    public enum ElementType: String, Codable, CaseIterable {
+    public enum ElementType: String, Codable, CaseIterable, Sendable {
         case reply = "reply"
         case input = "input"
         case session = "session"
+    case send = "send"
     }
     
-    public enum AttributeValue: Codable, Hashable {
+    public enum AttributeValue: Codable, Hashable, Sendable {
         case string(String)
         case int(Int)
         case bool(Bool)
@@ -96,7 +97,7 @@ public struct ElementSignature: Codable, Hashable {
     }
 }
 
-public struct Evidence: Codable {
+public struct Evidence: Codable, Sendable {
     public let method: DetectionMethod
     public let heuristicScore: Double
     public let diffScore: Double
@@ -105,7 +106,7 @@ public struct Evidence: Codable {
     public let confidence: Double
     public let timestamp: TimeInterval
     
-    public enum DetectionMethod: String, Codable {
+    public enum DetectionMethod: String, Codable, Sendable {
         case passive = "passive"
         case ocr = "ocr"
         case peek = "peek"
@@ -130,7 +131,7 @@ public struct Evidence: Codable {
     }
 }
 
-public struct ElementResult: Codable {
+public struct ElementResult: Codable, Sendable {
     public let elementSignature: ElementSignature
     public let confidence: Double
     public let evidence: Evidence
@@ -149,7 +150,7 @@ public struct ElementResult: Codable {
     }
 }
 
-public struct Policy: Codable {
+public struct Policy: Codable, Sendable {
     public let allowPeek: Bool
     public let minConfidence: Double
     public let maxPeekMs: Int
@@ -177,7 +178,7 @@ public struct Policy: Codable {
 
 // MARK: - Snapshot Models
 
-public struct ElementSnapshot: Codable {
+public struct ElementSnapshot: Codable, Sendable {
     public let elementId: String
     public let role: String
     public let frame: CGRect
@@ -205,7 +206,7 @@ public struct ElementSnapshot: Codable {
     }
 }
 
-public struct SnapshotDiff: Codable {
+public struct SnapshotDiff: Codable, Sendable {
     public let replyChangeDetected: Bool
     public let childCountDelta: Int
     public let textLengthDelta: Int
