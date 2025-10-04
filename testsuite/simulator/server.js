@@ -93,6 +93,19 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { signatures: [mockSignature()], count: 1 });
   }
 
+  if (req.method === 'POST' && pathname === '/api/v1/send') {
+    // Simulate successful AX set + press and a detectable diff
+    const body = await readJson(req);
+    const elements = {
+      input: { role: 'AXTextField', confidence: 0.95 },
+      send: { role: 'AXButton', confidence: 0.92 },
+      reply: { role: 'AXScrollArea', confidence: 0.96 },
+    };
+    const actions = { setValue: true, pressedSend: true, confirmedInput: false };
+    const diff = { confidence: 0.88, diffScore: 0.42, ocrChange: false };
+    return json(res, 200, { elements, actions, diff, success: true });
+  }
+
   if (req.method === 'POST' && pathname === '/api/v1/observe') {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -173,4 +186,3 @@ function elementResultResponse(result) {
     success: result.confidence > 0.5
   };
 }
-

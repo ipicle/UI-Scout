@@ -19,8 +19,16 @@ struct UIScoutTestflow: AsyncParsableCommand {
     @Option(name: .long, help: "Minimum confidence threshold (0.0-1.0)")
     var minConfidence: Double = 0.6
 
+    @Flag(name: .customLong("no-ocr"), help: "Disable OCR checks (stabilizes runs if Screen Recording is unavailable)")
+    var noOCR: Bool = false
+
     func run() async throws {
-        LoggingSystem.bootstrap(StreamLogHandler.standardOutput)
+        // Lightweight logging bootstrap that avoids non-Sendable closure capture warnings
+        LoggingSystem.bootstrap { label in
+            var handler = StreamLogHandler.standardOutput(label: label)
+            handler.logLevel = .info
+            return handler
+        }
 
         let bootstrap = UIScoutBootstrap()
         let permissionStatus = try await bootstrap.initialize()
@@ -34,7 +42,7 @@ struct UIScoutTestflow: AsyncParsableCommand {
         let elementFinder = ElementFinder(axClient: axClient)
         let snapshotManager = SnapshotManager(axClient: axClient)
         let scorer = ConfidenceScorer()
-        let ocrManager = OCRManager()
+    let ocrManager = OCRManager(disabled: noOCR)
         let store = try SignatureStore()
         let rateLimiter = RateLimiter()
 
@@ -58,11 +66,17 @@ struct UIScoutTestflow: AsyncParsableCommand {
 
         let policy = Policy(allowPeek: true, minConfidence: minConfidence)
 
-        // Run discovery
-        async let input = orchestrator.findElement(appBundleId: app, elementType: .input, policy: policy)
-        async let send = orchestrator.findElement(appBundleId: app, elementType: .send, policy: policy)
-        async let reply = orchestrator.findElement(appBundleId: app, elementType: .reply, policy: policy)
-        async let session = orchestrator.findElement(appBundleId: app, elementType: .session, policy: policy)
+    // Run discovery in parallel
+    if !json { print("[testflow] starting discovery (noOCR=\(noOCR))") }
+    if !json { print("[testflow] finding input...") }
+    async let input: ElementResult = orchestrator.findElement(appBundleId: app, elementType: ElementSignature.ElementType.input, policy: policy)
+    if !json { print("[testflow] finding send...") }
+    async let send: ElementResult = orchestrator.findElement(appBundleId: app, elementType: ElementSignature.ElementType.send, policy: policy)
+    if !json { print("[testflow] finding reply...") }
+    async let reply: ElementResult = orchestrator.findElement(appBundleId: app, elementType: ElementSignature.ElementType.reply, policy: policy)
+    if !json { print("[testflow] finding session...") }
+    async let session: ElementResult = orchestrator.findElement(appBundleId: app, elementType: ElementSignature.ElementType.session, policy: policy)
+        if !json { print("[testflow] awaiting results...") }
         let (inputR, sendR, replyR, sessionR) = await (input, send, reply, session)
 
         if json {
@@ -85,7 +99,7 @@ struct UIScoutTestflow: AsyncParsableCommand {
         }
 
         // Exit code mirrors overall success
-        let allOK = [inputR, sendR, replyR, sessionR].allSatisfy { $0.confidence >= minConfidence }
+    let allOK = [inputR, sendR, replyR, sessionR].allSatisfy { (r: ElementResult) in r.confidence >= minConfidence }
         if !allOK { throw ExitCode(2) }
     }
 

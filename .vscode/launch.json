@@ -53,6 +53,24 @@
             "name": "Release uisct-testflow",
             "program": "${workspaceFolder:UI-Scout}/.build/release/uisct-testflow",
             "preLaunchTask": "swift: Build Release uisct-testflow"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:UI-Scout}",
+            "name": "Debug uisct-read",
+            "program": "${workspaceFolder:UI-Scout}/.build/debug/uisct-read",
+            "preLaunchTask": "swift: Build Debug uisct-read"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:UI-Scout}",
+            "name": "Release uisct-read",
+            "program": "${workspaceFolder:UI-Scout}/.build/release/uisct-read",
+            "preLaunchTask": "swift: Build Release uisct-read"
         }
     ]
 }

@@ -1,0 +1,36 @@
+2025-09-14T22:37:48-0400 info ui-scout.bootstrap: [UIScoutCore] Initializing UIScout...
+2025-09-14T22:37:48-0400 info ui-scout.bootstrap: [UIScoutCore] Environment: Unknown (Bundle: unknown)
+2025-09-14T22:37:48-0400 info ui-scout.bootstrap: [UIScoutCore] Recommended approach: Grant permissions to UIScout application
+2025-09-14T22:37:48-0400 info ui-scout.bootstrap: [UIScoutCore] Initial permission check:
+2025-09-14T22:37:48-0400 info ui-scout.bootstrap: [UIScoutCore] Permission Status:
+  Accessibility: ✓
+  Screen Recording: ✓
+  Can operate: Yes
+2025-09-14T22:37:48-0400 info ui-scout.bootstrap: [UIScoutCore] UIScout initialized successfully!
+2025-09-14T22:37:48-0400 info ui-scout.orchestrator: [UIScoutCore] Finding send element for com.raycast.macos
+2025-09-14T22:37:48-0400 info ui-scout.orchestrator: [UIScoutCore] Finding reply element for com.raycast.macos
+2025-09-14T22:37:48-0400 info ui-scout.orchestrator: [UIScoutCore] Finding session element for com.raycast.macos
+2025-09-14T22:37:48-0400 info ui-scout.orchestrator: [UIScoutCore] Finding input element for com.raycast.macos
+2025-09-14T22:37:48-0400 info ui-scout.orchestrator: [UIScoutCore] Cached signature sufficient: confidence 0.9833718400000001
+2025-09-14T22:37:49-0400 info ui-scout.orchestrator: [UIScoutCore] Cached signature sufficient: confidence 0.8778
+2025-09-14T22:37:49-0400 info ui-scout.orchestrator: [UIScoutCore] Cached signature sufficient: confidence 1.0
+2025-09-14T22:37:49-0400 warning ui-scout.snapshot: [UIScoutCore] Could not find element for signature in app com.raycast.macos
+{
+  "app" : "com.raycast.macos",
+  "elements" : {
+    "input" : {
+      "confidence" : 0.98337184000000011,
+      "text" : ""
+    },
+    "reply" : {
+      "confidence" : 1,
+      "text" : "Today\nNew Chat\nAsk Al Anything...\nListing available tools with their...\n[FINAL] Tool ID Tool Name Descript..\nList tools\n[FINAL] ID Name Description mcpet...\nRequest to list available tools in t...\nlist tools\nListing Available Tools and Prep...\nlist tools\nListing Files in Current Workspa...\nlist files in workspace\nListing available tools and their...\nAs well as t\none of its b\nto get Span\n• January 2024 - 1\nEverything\n• November 2023\nSpamSieve\nInBox. That\nI was able t\nafter the up\nold one. I..."
+    },
+    "session" : {
+      "confidence" : 1,
+      "items" : [
+
+      ]
+    }
+  }
+}

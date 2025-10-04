@@ -2,6 +2,7 @@ import Vapor
 import Foundation
 import UIScoutCore
 import Logging
+import ApplicationServices
 
 // MARK: - HTTP Service Entry Point
 
@@ -257,6 +258,92 @@ func routes(_ app: Application) throws {
         
         return SignatureListResponse(signatures: signatures, count: signatures.count)
     }
+
+    // Send message (AX-safe): set input value and press send button, then evaluate diff
+    api.post("send") { req -> SendResponse in
+        let request = try req.content.decode(SendRequest.self)
+        let orchestrator = req.application.orchestrator
+
+        let policy = request.policy ?? Policy.default
+
+        // Discover elements in parallel
+        async let inputR = orchestrator.findElement(appBundleId: request.appBundleId, elementType: .input, policy: policy)
+        async let sendR  = orchestrator.findElement(appBundleId: request.appBundleId, elementType: .send,  policy: policy)
+        async let replyR = orchestrator.findElement(appBundleId: request.appBundleId, elementType: .reply, policy: policy)
+        let (inputRes, sendRes, replyRes) = await (inputR, sendR, replyR)
+
+        // Resolve AX elements via signature.pathHint heuristics
+        let ax = AXClient()
+        var setValueOK = false
+        var pressedSendOK = false
+        var confirmedInputOK = false
+
+        if let inputEl = resolveAXByPathHint(axClient: ax, signature: inputRes.elementSignature) ?? bfsFindRole(axClient: ax, bundleId: request.appBundleId, desiredRole: kAXTextFieldRole) ?? bfsFindRole(axClient: ax, bundleId: request.appBundleId, desiredRole: kAXTextAreaRole) {
+            // Try to focus and set AXValue
+            try? ax.focusElement(inputEl)
+            try? ax.setAttribute(inputEl, kAXValueAttribute, value: request.text)
+            setValueOK = true
+
+            // Try pressing explicit send button, else confirm input
+            if let sendEl = resolveAXByPathHint(axClient: ax, signature: sendRes.elementSignature) ?? bfsFindRole(axClient: ax, bundleId: request.appBundleId, desiredRole: kAXButtonRole) {
+                try? ax.focusElement(sendEl)
+                try? ax.performAction(sendEl, action: kAXPressAction)
+                pressedSendOK = true
+            } else {
+                try? ax.performAction(inputEl, action: kAXConfirmAction)
+                confirmedInputOK = true
+            }
+        }
+
+        // Always try confirm after possible press
+        if !pressedSendOK, let inputEl = resolveAXByPathHint(axClient: ax, signature: inputRes.elementSignature) ?? bfsFindRole(axClient: ax, bundleId: request.appBundleId, desiredRole: kAXTextFieldRole) {
+            try? ax.performAction(inputEl, action: kAXConfirmAction)
+            confirmedInputOK = confirmedInputOK || true
+        }
+
+        // Delay to allow UI refresh
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+
+        // Evaluate diff on reply (passive)
+        var diffResult = await orchestrator.afterSendDiff(appBundleId: request.appBundleId, preSignature: replyRes.elementSignature, policy: policy)
+
+        // Escalate to OCR if passive is weak
+        if #available(macOS 10.15, *) {
+            let snapMgr = SnapshotManager(axClient: ax)
+            if let before = snapMgr.createSnapshot(for: replyRes.elementSignature) {
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                if let after = snapMgr.createSnapshot(for: replyRes.elementSignature) {
+                    let ocr = await OCRManager(disabled: false).performOCRCheck(appBundleId: request.appBundleId, beforeSnapshot: before, afterSnapshot: after)
+                    if ocr.changeDetected {
+                        let snapDiff = snapMgr.calculateDiff(before: before, after: after)
+                        let conf = ConfidenceScorer().calculateConfidence(
+                            signature: replyRes.elementSignature,
+                            heuristicScore: replyRes.elementSignature.stability,
+                            diffEvidence: snapDiff,
+                            ocrEvidence: ocr,
+                            method: .ocr
+                        )
+                        diffResult = ElementResult(
+                            elementSignature: replyRes.elementSignature,
+                            confidence: conf,
+                            evidence: Evidence(method: .ocr, heuristicScore: replyRes.elementSignature.stability, diffScore: snapDiff.confidence, ocrChange: true, confidence: conf)
+                        )
+                    }
+                }
+            }
+        }
+
+        let elements: [String: ElementBrief] = [
+            "input": ElementBrief(role: inputRes.elementSignature.role, confidence: inputRes.confidence),
+            "send":  ElementBrief(role: sendRes.elementSignature.role,  confidence: sendRes.confidence),
+            "reply": ElementBrief(role: replyRes.elementSignature.role, confidence: replyRes.confidence)
+        ]
+
+        let actions = SendActions(setValue: setValueOK, pressedSend: pressedSendOK, confirmedInput: confirmedInputOK)
+        let diff = DiffBrief(confidence: diffResult.confidence, diffScore: diffResult.evidence.diffScore, ocrChange: diffResult.evidence.ocrChange)
+        let success = (setValueOK && (pressedSendOK || confirmedInputOK)) && diff.confidence >= 0.5
+        return SendResponse(elements: elements, actions: actions, diff: diff, success: success)
+    }
     
     // Error handling
     app.middleware.use(ErrorMiddleware.default(environment: app.environment))
@@ -292,6 +379,12 @@ struct LearnRequest: Content {
     let signature: ElementSignature
     let pin: Bool
     let decay: Bool
+}
+
+struct SendRequest: Content {
+    let appBundleId: String
+    let text: String
+    let policy: Policy?
 }
 
 struct ElementResultResponse: Content {
@@ -450,4 +543,89 @@ struct UIScoutErrorMiddleware: Middleware {
 struct HealthResponse: Content {
     let status: String
     let timestamp: Double
+}
+
+// MARK: - Send Response Models
+
+struct ElementBrief: Content {
+    let role: String
+    let confidence: Double
+}
+
+struct SendActions: Content {
+    let setValue: Bool
+    let pressedSend: Bool
+    let confirmedInput: Bool
+}
+
+struct DiffBrief: Content {
+    let confidence: Double
+    let diffScore: Double
+    let ocrChange: Bool
+}
+
+struct SendResponse: Content {
+    let elements: [String: ElementBrief]
+    let actions: SendActions
+    let diff: DiffBrief
+    let success: Bool
+}
+
+// MARK: - AX helpers (service scope)
+
+private func resolveAXByPathHint(axClient: AXClient, signature: ElementSignature) -> AXUIElement? {
+    guard let windows = try? axClient.getElementsForApp(signature.appBundleId) else { return nil }
+    let windowStep = signature.pathHint.first(where: { $0.hasPrefix("AXWindow[") })
+    var targetWindowIndex: Int? = nil
+    if let step = windowStep,
+       let lb = step.firstIndex(of: "["), let rb = step.firstIndex(of: "]"),
+       let idx = Int(step[step.index(after: lb)..<rb]) {
+        targetWindowIndex = idx
+    }
+
+    for (i, w) in windows.enumerated() {
+        if let t = targetWindowIndex, t != i { continue }
+        if let el = traverseByPathHint(axClient: axClient, root: w, pathHint: signature.pathHint) {
+            return el
+        }
+    }
+    return nil
+}
+
+private func traverseByPathHint(axClient: AXClient, root: AXUIElement, pathHint: [String]) -> AXUIElement? {
+    guard let windowPos = pathHint.firstIndex(where: { $0.hasPrefix("AXWindow[") }) else { return nil }
+    var current: AXUIElement = root
+    for step in pathHint.dropFirst(windowPos + 1) {
+        guard let lb = step.firstIndex(of: "["), let rb = step.firstIndex(of: "]") else { return nil }
+        let role = String(step[..<lb])
+        guard let idx = Int(step[step.index(after: lb)..<rb]) else { return nil }
+        guard let children = try? axClient.getAttribute(current, kAXChildrenAttribute, as: [AXUIElement].self) else { return nil }
+        var count = 0
+        var nextEl: AXUIElement?
+        for child in children {
+            let childRole = (try? axClient.getAttribute(child, kAXRoleAttribute, as: String.self)) ?? ""
+            if childRole == role {
+                if count == idx { nextEl = child; break }
+                count += 1
+            }
+        }
+        guard let next = nextEl else { return nil }
+        current = next
+    }
+    return current
+}
+
+private func bfsFindRole(axClient: AXClient, bundleId: String, desiredRole: String, maxDepth: Int = 7) -> AXUIElement? {
+    guard let windows = try? axClient.getElementsForApp(bundleId), let root = windows.first else { return nil }
+    var queue: [(AXUIElement, Int)] = [(root, 0)]
+    while !queue.isEmpty {
+        let (el, d) = queue.removeFirst()
+        if d > maxDepth { continue }
+        let role = (try? axClient.getAttribute(el, kAXRoleAttribute, as: String.self)) ?? ""
+        if role == desiredRole { return el }
+        if let children = try? axClient.getAttribute(el, kAXChildrenAttribute, as: [AXUIElement].self) {
+            for c in children { queue.append((c, d + 1)) }
+        }
+    }
+    return nil
 }

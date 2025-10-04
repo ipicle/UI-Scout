@@ -1,0 +1,16 @@
+2025-09-14T22:37:44-0400 info ui-scout.bootstrap: [UIScoutCore] Initializing UIScout...
+2025-09-14T22:37:44-0400 info ui-scout.bootstrap: [UIScoutCore] Environment: Unknown (Bundle: unknown)
+2025-09-14T22:37:44-0400 info ui-scout.bootstrap: [UIScoutCore] Recommended approach: Grant permissions to UIScout application
+2025-09-14T22:37:44-0400 info ui-scout.bootstrap: [UIScoutCore] Initial permission check:
+2025-09-14T22:37:44-0400 info ui-scout.bootstrap: [UIScoutCore] Permission Status:
+  Accessibility: ✓
+  Screen Recording: ✓
+  Can operate: Yes
+2025-09-14T22:37:44-0400 info ui-scout.bootstrap: [UIScoutCore] UIScout initialized successfully!
+2025-09-14T22:37:44-0400 info ui-scout.orchestrator: [UIScoutCore] Finding reply element for com.raycast.macos
+2025-09-14T22:37:44-0400 info ui-scout.orchestrator: [UIScoutCore] Finding send element for com.raycast.macos
+2025-09-14T22:37:44-0400 info ui-scout.orchestrator: [UIScoutCore] Finding input element for com.raycast.macos
+2025-09-14T22:37:44-0400 info ui-scout.orchestrator: [UIScoutCore] Cached signature sufficient: confidence 0.9196000000000002
+2025-09-14T22:37:45-0400 warning ui-scout.snapshot: [UIScoutCore] Could not find element for signature in app com.raycast.macos
+2025-09-14T22:37:47-0400 error ui-scout.ocr: [UIScoutCore] Vision text recognition failed: Error Domain=com.apple.Vision Code=13 "The image is too small in at least one dimension 18 x 2 (each dimension has to be more than 2 pixels)" UserInfo={NSLocalizedDescription=The image is too small in at least one dimension 18 x 2 (each dimension has to be more than 2 pixels)}
+2025-09-14T22:37:47-0400 error ui-scout.ocr: [UIScoutCore] Failed to perform Vision request: Error Domain=com.apple.Vision Code=13 "The image is too small in at least one dimension 18 x 2 (each dimension has to be more than 2 pixels)" UserInfo={NSLocalizedDescription=The image is too small in at least one dimension 18 x 2 (each dimension has to be more than 2 pixels)}

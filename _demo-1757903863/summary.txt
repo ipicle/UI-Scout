@@ -1,0 +1,4 @@
+SENTINEL: DEMO::57E26490-6B0E-4A50-9C55-5921EE55DD64::1757903863
+AX send: set=false press=false confirm=false
+Reply has sentinel: NO
+Clipboard has sentinel: NO

@@ -143,6 +143,72 @@ public class AXClient {
         traverseForText(element)
         return min(totalLength, maxLength)
     }
+
+    // Extract concatenated text from an element subtree (for input/reply)
+    public func extractText(from element: AXUIElement, maxLength: Int = 5000) -> String {
+        var pieces: [String] = []
+        var total = 0
+        
+        func visit(_ el: AXUIElement) {
+            if total >= maxLength { return }
+            let attrs = getMinimalAttributes(for: el)
+            if attrs.role == "AXStaticText" || attrs.role == "AXTextField" || attrs.role == "AXTextArea" {
+                if let v = attrs.value, !v.isEmpty {
+                    pieces.append(v)
+                    total += v.count
+                }
+            }
+            if let children = try? getAttribute(el, kAXChildrenAttribute, as: [AXUIElement].self) {
+                for c in children { visit(c); if total >= maxLength { break } }
+            }
+        }
+        visit(element)
+        return pieces.joined(separator: "\n").prefix(maxLength).description
+    }
+
+    // Extract visible row titles from AXTable/AXOutline/AXList (for session sidebar)
+    public func extractListItems(from element: AXUIElement, maxItems: Int = 50) -> [String] {
+        let attrs = getMinimalAttributes(for: element)
+        guard attrs.role == "AXTable" || attrs.role == "AXList" || attrs.role == "AXOutline" else {
+            // Try to find a table/list child
+            if let children = try? getAttribute(element, kAXChildrenAttribute, as: [AXUIElement].self) {
+                for child in children {
+                    let role = getMinimalAttributes(for: child).role
+                    if role == "AXTable" || role == "AXList" || role == "AXOutline" {
+                        return extractListItems(from: child, maxItems: maxItems)
+                    }
+                }
+            }
+            return []
+        }
+        
+        var items: [String] = []
+        if let rows = try? getAttribute(element, kAXChildrenAttribute, as: [AXUIElement].self) {
+            for row in rows.prefix(maxItems) {
+                // Look for static text in the row
+                var title: String = ""
+                if let cells = try? getAttribute(row, kAXChildrenAttribute, as: [AXUIElement].self) {
+                    for cell in cells {
+                        let cellAttrs = getMinimalAttributes(for: cell)
+                        if cellAttrs.role == "AXStaticText", let v = cellAttrs.value, !v.isEmpty {
+                            title = v
+                            break
+                        }
+                        // Dive deeper if needed
+                        if let deep = try? getAttribute(cell, kAXChildrenAttribute, as: [AXUIElement].self) {
+                            for d in deep {
+                                let a = getMinimalAttributes(for: d)
+                                if a.role == "AXStaticText", let v = a.value, !v.isEmpty { title = v; break }
+                            }
+                        }
+                        if !title.isEmpty { break }
+                    }
+                }
+                if !title.isEmpty { items.append(title) }
+            }
+        }
+        return items
+    }
     
     // MARK: - Element Path Generation
     

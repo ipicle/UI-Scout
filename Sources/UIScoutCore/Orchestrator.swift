@@ -187,6 +187,29 @@ public class UIScoutOrchestrator {
     ) -> ElementSnapshot? {
         return snapshotManager.createSnapshot(for: signature)
     }
+
+    @MainActor
+    public func writeText(
+        appBundleId: String,
+        signature: ElementSignature,
+        text: String
+    ) async -> Bool {
+        do {
+            let windows = try axClient.getElementsForApp(appBundleId)
+            for window in windows {
+                if let element = findElementBySignature(window: window, signature: signature) {
+                    try axClient.focusElement(element)
+                    try axClient.setAttribute(element, kAXValueAttribute, value: text as CFString)
+                    logger.info("Wrote text to \(signature.elementType.rawValue) for \(appBundleId)")
+                    return true
+                }
+            }
+            logger.warning("Could not resolve element for writeText: \(signature.elementType.rawValue)")
+        } catch {
+            logger.error("writeText failed: \(error.localizedDescription)")
+        }
+        return false
+    }
     
     public func learnSignature(
         signature: ElementSignature,
@@ -499,7 +522,7 @@ public class RateLimiter {
     private var requestTimes: [String: [Date]] = [:]
     private let maxRequestsPerWindow: Int
     private let windowDuration: TimeInterval
-    private let queue = DispatchQueue(label: "rate-limiter", attributes: .concurrent)
+    private let queue = DispatchQueue(label: "rate-limiter")
     
     public init(maxRequestsPerWindow: Int = 10, windowDuration: TimeInterval = 60.0) {
         self.maxRequestsPerWindow = maxRequestsPerWindow

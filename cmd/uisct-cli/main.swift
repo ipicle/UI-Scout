@@ -2,6 +2,8 @@ import Foundation
 import ArgumentParser
 import UIScoutCore
 import Logging
+import ApplicationServices
+import AppKit
 
 @main
 struct UIScoutCLI: AsyncParsableCommand {
@@ -16,6 +18,9 @@ struct UIScoutCLI: AsyncParsableCommand {
             AfterSendDiffCommand.self,
             SnapshotCommand.self,
             LearnCommand.self,
+            SendMessageCommand.self,
+            CopyChatCommand.self,
+            CopyErrorLogsCommand.self,
             StatusCommand.self,
             SetupCommand.self
         ]
@@ -36,6 +41,352 @@ struct UIScoutCLI: AsyncParsableCommand {
     
     mutating func run() async throws {
         // This will never be called since we have subcommands
+    }
+}
+
+// MARK: - Menu Helpers
+
+private func pressMenuItem(appBundleId: String, titleContains needle: String) -> (pressed: Bool, title: String?) {
+    let ax = AXClient()
+    do {
+        let running = NSWorkspace.shared.runningApplications
+        guard let app = running.first(where: { $0.bundleIdentifier == appBundleId }) else { return (false, nil) }
+        let appEl = AXUIElementCreateApplication(app.processIdentifier)
+        // Try the main menu bar first
+        if let menuBar: AXUIElement = try ax.getAttribute(appEl, kAXMenuBarAttribute, as: AXUIElement.self) {
+            if let item = findMenuItemRecursively(ax: ax, root: menuBar, contains: needle) {
+                try? ax.performAction(item, action: kAXPressAction)
+                let title = (try? ax.getAttribute(item, kAXTitleAttribute, as: String.self)) ?? needle
+                return (true, title)
+            }
+        }
+
+        // Fallback: press in-window Actions menu (AXMenuButton/AXButton) and then pick menu item
+        if let window = firstWindow(ax: ax, appEl: appEl, titleHint: "AI Chat") {
+            if pressActionsAndSelect(ax: ax, appEl: appEl, root: window, pickTitleContains: needle) {
+                return (true, needle)
+            }
+        }
+    } catch {
+        // ignore and fall through
+    }
+    return (false, nil)
+}
+
+private func findMenuItemRecursively(ax: AXClient, root: AXUIElement, contains needle: String) -> AXUIElement? {
+    let lowerNeedle = needle.lowercased()
+    if let title = try? ax.getAttribute(root, kAXTitleAttribute, as: String.self) {
+        if title.lowercased().contains(lowerNeedle),
+           let role = try? ax.getAttribute(root, kAXRoleAttribute, as: String.self), role == kAXMenuItemRole {
+            return root
+        }
+    }
+    if let children = try? ax.getAttribute(root, kAXChildrenAttribute, as: [AXUIElement].self) {
+        for c in children {
+            if let found = findMenuItemRecursively(ax: ax, root: c, contains: lowerNeedle) { return found }
+        }
+    }
+    // Recurse through children only; many menu structures are nested via AXChildren
+    return nil
+}
+
+private func readClipboardString() -> String {
+    return NSPasteboard.general.string(forType: .string) ?? ""
+}
+
+// Find the first window, prefer one with a title hint
+private func firstWindow(ax: AXClient, appEl: AXUIElement, titleHint: String?) -> AXUIElement? {
+    if let windows: [AXUIElement] = try? ax.getAttribute(appEl, kAXWindowsAttribute, as: [AXUIElement].self) {
+        if let hint = titleHint {
+            for w in windows {
+                if let t: String = try? ax.getAttribute(w, kAXTitleAttribute, as: String.self), t.contains(hint) { return w }
+            }
+        }
+        return windows.first
+    }
+    return nil
+}
+
+// Press a likely actions menu button in the window, then choose a menu item by title
+private func pressActionsAndSelect(ax: AXClient, appEl: AXUIElement, root: AXUIElement, pickTitleContains: String) -> Bool {
+    // Candidates: AXMenuButton, or AXButton with title containing Actions/More/…
+    let triggers = bfsCollect(ax: ax, root: root, maxDepth: 8) { el in
+        let role = (try? ax.getAttribute(el, kAXRoleAttribute, as: String.self)) ?? ""
+        let title = (try? ax.getAttribute(el, kAXTitleAttribute, as: String.self))?.lowercased() ?? ""
+        if role == kAXMenuButtonRole { return true }
+        if role == kAXButtonRole && (title.contains("actions") || title.contains("more") || title == "…" || title == "...") {
+            return true
+        }
+        return false
+    }
+    for btn in triggers {
+        try? ax.performAction(btn, action: kAXPressAction)
+        // small delay to allow menu to appear
+        usleep(200_000)
+        if let item = findAnyMenuItem(ax: ax, appEl: appEl, contains: pickTitleContains) {
+            try? ax.performAction(item, action: kAXPressAction)
+            return true
+        }
+    }
+    return false
+}
+
+// Search any visible AXMenu for a menu item containing the given text
+private func findAnyMenuItem(ax: AXClient, appEl: AXUIElement, contains needle: String) -> AXUIElement? {
+    let lower = needle.lowercased()
+    // Search whole app tree shallowly for AXMenu nodes
+    let candidates = bfsCollect(ax: ax, root: appEl, maxDepth: 5) { el in
+        let role = (try? ax.getAttribute(el, kAXRoleAttribute, as: String.self)) ?? ""
+        return role == kAXMenuRole
+    }
+    for menu in candidates {
+        if let item = bfsFind(ax: ax, root: menu, maxDepth: 4) { el in
+            let role = (try? ax.getAttribute(el, kAXRoleAttribute, as: String.self)) ?? ""
+            if role != kAXMenuItemRole { return false }
+            let t = ((try? ax.getAttribute(el, kAXTitleAttribute, as: String.self)) ?? "").lowercased()
+            return t.contains(lower)
+        } {
+            return item
+        }
+    }
+    // Fallback: many apps show a popover/panel with regular buttons; search for buttons by title
+    if let button = bfsFind(ax: ax, root: appEl, maxDepth: 6, predicate: { el in
+        let role = (try? ax.getAttribute(el, kAXRoleAttribute, as: String.self)) ?? ""
+        if role != kAXButtonRole { return false }
+        let t = ((try? ax.getAttribute(el, kAXTitleAttribute, as: String.self)) ?? "").lowercased()
+        return t.contains(lower)
+    }) {
+        return button
+    }
+    return nil
+}
+
+// MARK: - Contextual Actions (near reply)
+
+// Resolve an AX element from UIScout signature.pathHint within the correct window
+private func resolveElementBySignature(axClient: AXClient, signature: ElementSignature) -> AXUIElement? {
+    guard let windows = try? axClient.getElementsForApp(signature.appBundleId) else { return nil }
+    // Try to respect window index from path hint if present
+    let windowStep = signature.pathHint.first(where: { $0.hasPrefix("AXWindow[") })
+    var targetWindowIndex: Int? = nil
+    if let step = windowStep,
+       let lb = step.firstIndex(of: "["), let rb = step.firstIndex(of: "]"),
+       let idx = Int(step[step.index(after: lb)..<rb]) {
+        targetWindowIndex = idx
+    }
+    for (i, window) in windows.enumerated() {
+        if let t = targetWindowIndex, t != i { continue }
+        if let el = traverseByPathHint(axClient: axClient, root: window, pathHint: signature.pathHint) { return el }
+    }
+    return nil
+}
+
+private func traverseByPathHint(axClient: AXClient, root: AXUIElement, pathHint: [String]) -> AXUIElement? {
+    guard let windowPos = pathHint.firstIndex(where: { $0.hasPrefix("AXWindow[") }) else { return nil }
+    var current: AXUIElement = root
+    for step in pathHint.dropFirst(windowPos + 1) {
+        guard let lb = step.firstIndex(of: "["), let rb = step.firstIndex(of: "]") else { return nil }
+        let role = String(step[..<lb])
+        guard let idx = Int(step[step.index(after: lb)..<rb]) else { return nil }
+        guard let children = try? axClient.getAttribute(current, kAXChildrenAttribute, as: [AXUIElement].self) else { return nil }
+        var count = 0
+        var nextEl: AXUIElement?
+        for child in children {
+            let childRole = (try? axClient.getAttribute(child, kAXRoleAttribute, as: String.self)) ?? ""
+            if childRole == role {
+                if count == idx { nextEl = child; break }
+                count += 1
+            }
+        }
+        guard let next = nextEl else { return nil }
+        current = next
+    }
+    return current
+}
+
+// From a starting element (e.g., reply), walk up a few parents and search siblings/children
+// for an actions menu trigger (AXMenuButton or an AXButton titled Actions/More/…)
+private func findActionsTrigger(ax: AXClient, start: AXUIElement, maxUp: Int = 4) -> AXUIElement? {
+    var current: AXUIElement? = start
+    for _ in 0..<maxUp {
+        if let el = current {
+            // Search siblings and their immediate children
+            if let parent = try? ax.getAttribute(el, kAXParentAttribute, as: AXUIElement.self),
+               let siblings = try? ax.getAttribute(parent, kAXChildrenAttribute, as: [AXUIElement].self) {
+                for s in siblings {
+                    if isActionsButton(ax: ax, el: s) { return s }
+                    if let kids = try? ax.getAttribute(s, kAXChildrenAttribute, as: [AXUIElement].self) {
+                        for k in kids { if isActionsButton(ax: ax, el: k) { return k } }
+                    }
+                }
+                current = parent
+                continue
+            }
+        }
+        break
+    }
+    // Fallback: BFS around start
+    return bfsFind(ax: ax, root: start, maxDepth: 6) { el in isActionsButton(ax: ax, el: el) }
+}
+
+private func isActionsButton(ax: AXClient, el: AXUIElement) -> Bool {
+    let role = (try? ax.getAttribute(el, kAXRoleAttribute, as: String.self)) ?? ""
+    if role == kAXMenuButtonRole { return true }
+    if role == kAXButtonRole {
+        let title = ((try? ax.getAttribute(el, kAXTitleAttribute, as: String.self)) ?? "").lowercased()
+        if title.contains("actions") || title.contains("more") || title == "…" || title == "..." { return true }
+    }
+    return false
+}
+
+// Press the actions trigger and pick an item; returns clipboard contents if successful
+private func invokeActionsAndCopy(ax: AXClient, appBundleId: String, reply: AXUIElement, pickTitleContains: String) -> (invoked: Bool, clipboard: String) {
+    let appEl = AXUIElementCreateApplication((NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == appBundleId }?.processIdentifier) ?? 0)
+    guard let trigger = findActionsTrigger(ax: ax, start: reply) else { return (false, "") }
+    try? ax.performAction(trigger, action: kAXPressAction)
+    usleep(250_000)
+    if let menuItem = findAnyMenuItem(ax: ax, appEl: appEl, contains: pickTitleContains) {
+        try? ax.performAction(menuItem, action: kAXPressAction)
+        usleep(200_000)
+        return (true, readClipboardString())
+    }
+    return (false, "")
+}
+
+// Generic BFS utilities
+private func bfsFind(ax: AXClient, root: AXUIElement, maxDepth: Int, predicate: (AXUIElement) -> Bool) -> AXUIElement? {
+    var q: [(AXUIElement, Int)] = [(root, 0)]
+    while !q.isEmpty {
+        let (el, d) = q.removeFirst()
+        if predicate(el) { return el }
+        if d >= maxDepth { continue }
+        if let kids = try? ax.getAttribute(el, kAXChildrenAttribute, as: [AXUIElement].self) {
+            for k in kids { q.append((k, d + 1)) }
+        }
+    }
+    return nil
+}
+
+private func bfsCollect(ax: AXClient, root: AXUIElement, maxDepth: Int, predicate: (AXUIElement) -> Bool) -> [AXUIElement] {
+    var out: [AXUIElement] = []
+    var q: [(AXUIElement, Int)] = [(root, 0)]
+    while !q.isEmpty {
+        let (el, d) = q.removeFirst()
+        if predicate(el) { out.append(el) }
+        if d >= maxDepth { continue }
+        if let kids = try? ax.getAttribute(el, kAXChildrenAttribute, as: [AXUIElement].self) {
+            for k in kids { q.append((k, d + 1)) }
+        }
+    }
+    return out
+}
+
+// MARK: - Copy Chat Command
+
+struct CopyChatCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "copy-chat",
+        abstract: "Invoke the app menu item to copy chat, then print clipboard contents"
+    )
+
+    @Option(name: .shortAndLong, help: "Application bundle identifier")
+    var app: String
+
+    @Flag(name: .long, help: "Output in JSON format")
+    var json: Bool = false
+
+    func run() async throws {
+        LoggingSystem.bootstrap(StreamLogHandler.standardOutput)
+
+        // First try menubar
+        var (ok, title) = pressMenuItem(appBundleId: app, titleContains: "Copy Chat")
+        var clip = readClipboardString()
+        if !ok || clip.isEmpty {
+            // Contextual: find reply, press actions, pick item
+            let bootstrap = UIScoutBootstrap()
+            let status = try await bootstrap.initialize()
+            guard status.canOperate else { throw ExitCode(1) }
+
+            let ax = AXClient()
+            let finder = ElementFinder(axClient: ax)
+            let snap = SnapshotManager(axClient: ax)
+            let scorer = ConfidenceScorer()
+            let ocr = OCRManager()
+            let store = try SignatureStore()
+            let rate = RateLimiter()
+            let factory = StateMachineFactory(scorer: scorer, snapshotManager: snap, axClient: ax, ocrManager: ocr)
+            let orch = UIScoutOrchestrator(axClient: ax, elementFinder: finder, snapshotManager: snap, scorer: scorer, ocrManager: ocr, stateMachineFactory: factory, store: store, rateLimiter: rate)
+            let policy = Policy(allowPeek: true, minConfidence: 0.6)
+            let replyRes = await orch.findElement(appBundleId: app, elementType: .reply, policy: policy)
+            if let replyEl = resolveElementBySignature(axClient: ax, signature: replyRes.elementSignature) {
+                let res = invokeActionsAndCopy(ax: ax, appBundleId: app, reply: replyEl, pickTitleContains: "Copy Chat")
+                ok = res.invoked
+                clip = res.clipboard.isEmpty ? clip : res.clipboard
+                title = title ?? "Copy Chat"
+            }
+            orch.cleanup()
+        }
+
+        if json {
+            printJSONAny(["invoked": ok, "title": title ?? "Copy Chat", "clipboard": clip])
+        } else {
+            print("📋 Copy Chat invoked=\(ok) title=\(title ?? "Copy Chat")")
+            print(clip)
+        }
+    }
+}
+
+// MARK: - Copy Error Logs Command
+
+struct CopyErrorLogsCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "copy-error-logs",
+        abstract: "Invoke the app menu item to copy error logs, then print clipboard contents"
+    )
+
+    @Option(name: .shortAndLong, help: "Application bundle identifier")
+    var app: String
+
+    @Flag(name: .long, help: "Output in JSON format")
+    var json: Bool = false
+
+    func run() async throws {
+        LoggingSystem.bootstrap(StreamLogHandler.standardOutput)
+
+        // First try menubar
+        var (ok, title) = pressMenuItem(appBundleId: app, titleContains: "Copy Error Logs")
+        var clip = readClipboardString()
+        if !ok || clip.isEmpty {
+            let bootstrap = UIScoutBootstrap()
+            let status = try await bootstrap.initialize()
+            guard status.canOperate else { throw ExitCode(1) }
+
+            let ax = AXClient()
+            let finder = ElementFinder(axClient: ax)
+            let snap = SnapshotManager(axClient: ax)
+            let scorer = ConfidenceScorer()
+            let ocr = OCRManager()
+            let store = try SignatureStore()
+            let rate = RateLimiter()
+            let factory = StateMachineFactory(scorer: scorer, snapshotManager: snap, axClient: ax, ocrManager: ocr)
+            let orch = UIScoutOrchestrator(axClient: ax, elementFinder: finder, snapshotManager: snap, scorer: scorer, ocrManager: ocr, stateMachineFactory: factory, store: store, rateLimiter: rate)
+            let policy = Policy(allowPeek: true, minConfidence: 0.6)
+            let replyRes = await orch.findElement(appBundleId: app, elementType: .reply, policy: policy)
+            if let replyEl = resolveElementBySignature(axClient: ax, signature: replyRes.elementSignature) {
+                let res = invokeActionsAndCopy(ax: ax, appBundleId: app, reply: replyEl, pickTitleContains: "Copy Error Logs")
+                ok = res.invoked
+                clip = res.clipboard.isEmpty ? clip : res.clipboard
+                title = title ?? "Copy Error Logs"
+            }
+            orch.cleanup()
+        }
+
+        if json {
+            printJSONAny(["invoked": ok, "title": title ?? "Copy Error Logs", "clipboard": clip])
+        } else {
+            print("📋 Copy Error Logs invoked=\(ok) title=\(title ?? "Copy Error Logs")")
+            print(clip)
+        }
     }
 }
 
@@ -577,6 +928,274 @@ struct LearnCommand: AsyncParsableCommand {
             let action = pin ? "📌 Pinned" : (decay ? "📉 Decayed" : "💾 Stored")
             print("\(action) signature for \(elementSignature.appBundleId)/\(elementSignature.elementType.rawValue)")
         }
+    }
+}
+
+// MARK: - Send Message Command (AX-safe)
+
+struct SendMessageCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "send",
+        abstract: "Set chat input text via AX and press the send button (no raw keystrokes)"
+    )
+
+    @Option(name: .shortAndLong, help: "Application bundle identifier (e.g., com.raycast.macos)")
+    var app: String
+
+    @Option(name: .shortAndLong, help: "Message text to send")
+    var text: String
+
+    @Option(name: .long, help: "Minimum confidence threshold for element discovery")
+    var minConfidence: Double = 0.6
+
+    @Flag(name: .long, help: "Allow polite peek if needed")
+    var allowPeek: Bool = true
+
+    @Flag(name: .long, help: "Output in JSON format")
+    var json: Bool = false
+
+    func run() async throws {
+        LoggingSystem.bootstrap(StreamLogHandler.standardOutput)
+
+        // Permissions
+        let bootstrap = UIScoutBootstrap()
+        let permissionStatus = try await bootstrap.initialize()
+        guard permissionStatus.canOperate else { throw ExitCode(1) }
+
+        // Core components
+        let axClient = AXClient()
+        let elementFinder = ElementFinder(axClient: axClient)
+        let snapshotManager = SnapshotManager(axClient: axClient)
+        let scorer = ConfidenceScorer()
+        let ocrManager = OCRManager()
+        let store = try SignatureStore()
+        let rateLimiter = RateLimiter()
+        let stateMachineFactory = StateMachineFactory(
+            scorer: scorer,
+            snapshotManager: snapshotManager,
+            axClient: axClient,
+            ocrManager: ocrManager
+        )
+        let orchestrator = UIScoutOrchestrator(
+            axClient: axClient,
+            elementFinder: elementFinder,
+            snapshotManager: snapshotManager,
+            scorer: scorer,
+            ocrManager: ocrManager,
+            stateMachineFactory: stateMachineFactory,
+            store: store,
+            rateLimiter: rateLimiter
+        )
+
+        let policy = Policy(allowPeek: allowPeek, minConfidence: minConfidence)
+
+        // Discover input, send, reply in parallel
+        async let inputR = orchestrator.findElement(appBundleId: app, elementType: .input, policy: policy)
+        async let sendR = orchestrator.findElement(appBundleId: app, elementType: .send, policy: policy)
+        async let replyR = orchestrator.findElement(appBundleId: app, elementType: .reply, policy: policy)
+        let (inputRes, sendRes, replyRes) = await (inputR, sendR, replyR)
+
+        // Resolve AX elements using path hints (index-based where available)
+        var inputEl = resolveAXByPathHint(axClient: axClient, signature: inputRes.elementSignature)
+        var sendEl = resolveAXByPathHint(axClient: axClient, signature: sendRes.elementSignature)
+
+        var setValueOK = false
+        var pressedSendOK = false
+        var confirmedInputOK = false
+
+        if let el = inputEl {
+            // Preferred: set AXValue on the input element
+            do {
+                // Attempt to focus first for better reliability
+                try? axClient.focusElement(el)
+                try axClient.setAttribute(el, kAXValueAttribute, value: text)
+                setValueOK = true
+            } catch {
+                setValueOK = false
+            }
+        } else {
+            // Fallback: try to locate a text field via BFS
+            if let bfsInput = bfsFindRole(axClient: axClient, bundleId: app, desiredRole: kAXTextFieldRole) ?? bfsFindRole(axClient: axClient, bundleId: app, desiredRole: kAXTextAreaRole) {
+                inputEl = bfsInput
+                do {
+                    try? axClient.focusElement(bfsInput)
+                    try axClient.setAttribute(bfsInput, kAXValueAttribute, value: text)
+                    setValueOK = true
+                } catch {
+                    setValueOK = false
+                }
+            }
+        }
+
+        if let el = sendEl {
+            // Preferred: press the send button via AXPress
+            do {
+                try? axClient.focusElement(el)
+                try axClient.performAction(el, action: kAXPressAction)
+                pressedSendOK = true
+            } catch {
+                pressedSendOK = false
+            }
+        } else {
+            // Fallback: try to locate any button in the active window and press it
+            if let bfsButton = bfsFindRole(axClient: axClient, bundleId: app, desiredRole: kAXButtonRole) {
+                sendEl = bfsButton
+                do {
+                    try? axClient.focusElement(bfsButton)
+                    try axClient.performAction(bfsButton, action: kAXPressAction)
+                    pressedSendOK = true
+                } catch {
+                    pressedSendOK = false
+                }
+            }
+        }
+
+        if !pressedSendOK, let inputEl {
+            // Fallback: confirm on the input control
+            do {
+                try axClient.performAction(inputEl, action: kAXConfirmAction)
+                confirmedInputOK = true
+            } catch {
+                confirmedInputOK = false
+            }
+        }
+
+        // Always try to confirm once on input to avoid UI edge-cases
+        if !pressedSendOK, let el = inputEl {
+            try? axClient.performAction(el, action: kAXConfirmAction)
+            confirmedInputOK = confirmedInputOK || true
+        }
+
+        // Delay briefly to allow UI to update
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+
+        // Enhanced diff: try passive diff, then force OCR if available
+        var diffResult = await orchestrator.afterSendDiff(
+            appBundleId: app,
+            preSignature: replyRes.elementSignature,
+            policy: policy
+        )
+
+        if #available(macOS 10.15, *) {
+            // If passive diff is weak, attempt OCR confirmation regardless of stability
+            let beforeSnap = SnapshotManager(axClient: axClient).createSnapshot(for: replyRes.elementSignature)
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            let afterSnap = SnapshotManager(axClient: axClient).createSnapshot(for: replyRes.elementSignature)
+            if let b = beforeSnap, let a = afterSnap {
+                let ocr = await OCRManager(disabled: false).performOCRCheck(appBundleId: app, beforeSnapshot: b, afterSnapshot: a)
+                if ocr.changeDetected {
+                    let snapDiff = SnapshotManager(axClient: axClient).calculateDiff(before: b, after: a)
+                    let newConf = ConfidenceScorer().calculateConfidence(
+                        signature: replyRes.elementSignature,
+                        heuristicScore: replyRes.elementSignature.stability,
+                        diffEvidence: snapDiff,
+                        ocrEvidence: ocr,
+                        method: .ocr
+                    )
+                    diffResult = ElementResult(
+                        elementSignature: replyRes.elementSignature,
+                        confidence: newConf,
+                        evidence: Evidence(method: .ocr, heuristicScore: replyRes.elementSignature.stability, diffScore: snapDiff.confidence, ocrChange: true, confidence: newConf)
+                    )
+                }
+            }
+        }
+
+        if json {
+            let out: [String: Any] = [
+                "app": app,
+                "elements": [
+                    "input": ["confidence": inputRes.confidence, "role": inputRes.elementSignature.role],
+                    "send": ["confidence": sendRes.confidence, "role": sendRes.elementSignature.role],
+                    "reply": ["confidence": replyRes.confidence, "role": replyRes.elementSignature.role]
+                ],
+                "actions": [
+                    "setValue": setValueOK,
+                    "pressedSend": pressedSendOK,
+                    "confirmedInput": confirmedInputOK
+                ],
+                "diff": [
+                    "confidence": diffResult.confidence,
+                    "diffScore": diffResult.evidence.diffScore,
+                    "ocrChange": diffResult.evidence.ocrChange
+                ],
+                "success": (setValueOK && (pressedSendOK || confirmedInputOK)) && (diffResult.confidence >= 0.5)
+            ]
+            printJSONAny(out)
+        } else {
+            print("✉️  Send in \(app)")
+            print("- input: conf=\(String(format: "%.2f", inputRes.confidence)) role=\(inputRes.elementSignature.role)")
+            print("- send:  conf=\(String(format: "%.2f", sendRes.confidence)) role=\(sendRes.elementSignature.role)")
+            print("- reply: conf=\(String(format: "%.2f", replyRes.confidence)) role=\(replyRes.elementSignature.role)")
+            print("- actions: setValue=\(setValueOK) press=\(pressedSendOK) confirm=\(confirmedInputOK)")
+            print("- diff:   conf=\(String(format: "%.2f", diffResult.confidence)) score=\(String(format: "%.2f", diffResult.evidence.diffScore)) ocr=\(diffResult.evidence.ocrChange)")
+        }
+
+        orchestrator.cleanup()
+    }
+
+    // Resolve AX element using signature.pathHint (e.g., ["AXApplication[0]","AXWindow[1]",...])
+    private func resolveAXByPathHint(axClient: AXClient, signature: ElementSignature) -> AXUIElement? {
+        guard let windows = try? axClient.getElementsForApp(signature.appBundleId) else { return nil }
+
+        // Extract window index from pathHint if present
+        let windowStep = signature.pathHint.first(where: { $0.hasPrefix("AXWindow[") })
+        var targetWindowIndex: Int? = nil
+        if let step = windowStep,
+           let lb = step.firstIndex(of: "["), let rb = step.firstIndex(of: "]"),
+           let idx = Int(step[step.index(after: lb)..<rb]) {
+            targetWindowIndex = idx
+        }
+
+        for (i, window) in windows.enumerated() {
+            if let targetIndex = targetWindowIndex, targetIndex != i { continue }
+            if let element = traverseByPathHint(axClient: axClient, root: window, pathHint: signature.pathHint) {
+                return element
+            }
+        }
+        return nil
+    }
+
+    private func traverseByPathHint(axClient: AXClient, root: AXUIElement, pathHint: [String]) -> AXUIElement? {
+        // Start at the window step in the path
+        guard let windowPos = pathHint.firstIndex(where: { $0.hasPrefix("AXWindow[") }) else { return nil }
+        var current: AXUIElement = root
+
+        for step in pathHint.dropFirst(windowPos + 1) { // steps under window
+            guard let lb = step.firstIndex(of: "["), let rb = step.firstIndex(of: "]") else { return nil }
+            let role = String(step[..<lb])
+            guard let idx = Int(step[step.index(after: lb)..<rb]) else { return nil }
+            guard let children = try? axClient.getAttribute(current, kAXChildrenAttribute, as: [AXUIElement].self) else { return nil }
+            // pick the idx-th child that matches role among all children with that role
+            var count = 0
+            var nextEl: AXUIElement?
+            for child in children {
+                let childRole = (try? axClient.getAttribute(child, kAXRoleAttribute, as: String.self)) ?? ""
+                if childRole == role {
+                    if count == idx { nextEl = child; break }
+                    count += 1
+                }
+            }
+            guard let next = nextEl else { return nil }
+            current = next
+        }
+        return current
+    }
+
+    // Simple BFS to find an element with a desired AXRole in the app's frontmost window
+    private func bfsFindRole(axClient: AXClient, bundleId: String, desiredRole: String, maxDepth: Int = 7) -> AXUIElement? {
+        guard let windows = try? axClient.getElementsForApp(bundleId), let root = windows.first else { return nil }
+        var queue: [(AXUIElement, Int)] = [(root, 0)]
+        while !queue.isEmpty {
+            let (el, d) = queue.removeFirst()
+            if d > maxDepth { continue }
+            let role = (try? axClient.getAttribute(el, kAXRoleAttribute, as: String.self)) ?? ""
+            if role == desiredRole { return el }
+            if let children = try? axClient.getAttribute(el, kAXChildrenAttribute, as: [AXUIElement].self) {
+                for c in children { queue.append((c, d + 1)) }
+            }
+        }
+        return nil
     }
 }
 

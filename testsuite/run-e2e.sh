@@ -104,5 +104,13 @@ out=$(curl -sS "$BASE_URL/api/v1/observe" \
 echo "$out" | head -n 5 | grep -q '^data:' || fail "observe SSE did not stream data"
 ok "observe (SSE)"
 
-echo "[E2E] All checks passed against $BASE_URL"
+# 9) Send (AX-safe): ensure actions and diff are present
+resp=$(curl -sSf -X POST "$BASE_URL/api/v1/send" \
+  -H 'Content-Type: application/json' \
+  -d '{"appBundleId":"com.example.app","text":"hello"}')
+echo "$resp" | grep -q '"actions"' || fail "send missing actions"
+echo "$resp" | grep -q '"diff"' || fail "send missing diff"
+echo "$resp" | grep -q '"success": true' || fail "send not successful"
+ok "send"
 
+echo "[E2E] All checks passed against $BASE_URL"

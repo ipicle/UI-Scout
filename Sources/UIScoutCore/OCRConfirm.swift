@@ -130,14 +130,18 @@ public class OCRConfirmation {
     // MARK: - Screen Capture
     
     private func captureScreenRegion(_ bounds: CGRect) async -> CGImage? {
-        // Ensure we're on the main thread for screen capture
+        // Screen capture can be finicky: sanitize rect and use CGWindowListCreateImage for robustness
         return await MainActor.run {
-            guard let displayID = CGMainDisplayID() as CGDirectDisplayID? else {
-                return nil
-            }
-            
-            // Create a screenshot of the specified region
-            let image = CGDisplayCreateImage(displayID, rect: bounds)
+            // Clamp to main display bounds
+            let screenRect = NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+            let x = max(0, min(bounds.origin.x, screenRect.maxX))
+            let y = max(0, min(bounds.origin.y, screenRect.maxY))
+            let w = max(1, min(bounds.size.width, screenRect.maxX - x))
+            let h = max(1, min(bounds.size.height, screenRect.maxY - y))
+            let rect = CGRect(x: x, y: y, width: w, height: h)
+
+            // Use inclusive window list image of the screen region
+            let image = CGWindowListCreateImage(rect, .optionOnScreenOnly, kCGNullWindowID, [.bestResolution, .boundsIgnoreFraming])
             return image
         }
     }
@@ -315,9 +319,11 @@ public class OCRManager {
     private let logger = Logger(label: "ui-scout.ocr-manager")
     private var recentChecks: [String: Date] = [:]
     private let rateLimitInterval: TimeInterval = 1.0 // Minimum time between OCR checks
+    private let disabled: Bool
     
-    public init() {
+    public init(disabled: Bool = false) {
         self.confirmation = OCRConfirmation()
+        self.disabled = disabled
     }
     
     public func shouldUseOCR(
@@ -325,6 +331,7 @@ public class OCRManager {
         confidence: Double,
         policy: Policy
     ) -> Bool {
+    if disabled { return false }
         // Don't use OCR if confidence is too high or too low
         guard confidence >= 0.3 && confidence < 0.9 else {
             return false
@@ -364,6 +371,9 @@ public class OCRManager {
         beforeSnapshot: ElementSnapshot,
         afterSnapshot: ElementSnapshot
     ) async -> OCRResult {
+        if disabled {
+            return OCRResult(changeDetected: false, confidence: 0.0, textDifferences: [])
+        }
         let key = "\(appBundleId)-\(beforeSnapshot.elementId)"
         recentChecks[key] = Date()
         

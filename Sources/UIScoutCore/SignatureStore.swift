@@ -32,6 +32,9 @@ public class SignatureStore {
     
     private func setupDatabase() throws {
         try dbQueue.write { db in
+            // First, migrate any legacy camelCase schemas to snake_case
+            try migrateLegacySchemasIfNeeded(db)
+
             // Signatures table
             try db.create(table: "signatures", ifNotExists: true) { table in
                 table.column("id", .text).primaryKey()
@@ -103,6 +106,118 @@ public class SignatureStore {
                 try db.create(index: "idx_history_signature", on: "behavioral_history", columns: ["signature_id", "timestamp"], ifNotExists: true)
             } catch {
                 // Index already exists, ignore
+            }
+        }
+    }
+
+    // MARK: - Migrations
+
+    private func columnNames(in table: String, db: Database) throws -> Set<String> {
+        let rows = try Row.fetchAll(db, sql: "PRAGMA table_info(\(table))")
+        let names: [String] = rows.compactMap { row in
+            // PRAGMA table_info returns columns: cid, name, type, notnull, dflt_value, pk
+            return row["name"]
+        }
+        return Set(names)
+    }
+
+    private func migrateLegacySchemasIfNeeded(_ db: Database) throws {
+        // Signatures: look for camelCase like appBundleId
+        if try db.tableExists("signatures") {
+            let cols = try columnNames(in: "signatures", db: db)
+            if cols.contains("appBundleId") { // legacy schema detected
+                try db.execute(sql: """
+                    CREATE TABLE signatures_new (
+                        id TEXT PRIMARY KEY,
+                        app_bundle_id TEXT NOT NULL,
+                        element_type TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        subroles TEXT,
+                        frame_hash TEXT NOT NULL,
+                        path_hint TEXT,
+                        sibling_roles TEXT,
+                        read_only BOOLEAN NOT NULL,
+                        scrollable BOOLEAN NOT NULL,
+                        attrs TEXT,
+                        stability DOUBLE NOT NULL,
+                        last_verified_at DOUBLE NOT NULL,
+                        is_pinned BOOLEAN NOT NULL DEFAULT 0,
+                        created_at DOUBLE NOT NULL,
+                        updated_at DOUBLE NOT NULL
+                    )
+                """)
+                try db.execute(sql: """
+                    INSERT INTO signatures_new (
+                        id, app_bundle_id, element_type, role, subroles, frame_hash, path_hint, sibling_roles,
+                        read_only, scrollable, attrs, stability, last_verified_at, is_pinned, created_at, updated_at
+                    )
+                    SELECT
+                        id, appBundleId, elementType, role, subroles, frameHash, pathHint, siblingRoles,
+                        readOnly, scrollable, attrs, stability, lastVerifiedAt, isPinned, createdAt, updatedAt
+                    FROM signatures
+                """)
+                try db.execute(sql: "DROP TABLE signatures")
+                try db.execute(sql: "ALTER TABLE signatures_new RENAME TO signatures")
+            }
+        }
+
+        // Evidence: look for signatureId
+        if try db.tableExists("evidence") {
+            let cols = try columnNames(in: "evidence", db: db)
+            if cols.contains("signatureId") { // legacy schema detected
+                try db.execute(sql: """
+                    CREATE TABLE evidence_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        signature_id TEXT NOT NULL,
+                        method TEXT NOT NULL,
+                        heuristic_score DOUBLE NOT NULL,
+                        diff_score DOUBLE NOT NULL,
+                        ocr_change BOOLEAN NOT NULL,
+                        notifications TEXT,
+                        confidence DOUBLE NOT NULL,
+                        timestamp DOUBLE NOT NULL
+                    )
+                """)
+                try db.execute(sql: """
+                    INSERT INTO evidence_new (
+                        id, signature_id, method, heuristic_score, diff_score, ocr_change, notifications, confidence, timestamp
+                    )
+                    SELECT id, signatureId, method, heuristicScore, diffScore, ocrChange, notifications, confidence, timestamp
+                    FROM evidence
+                """)
+                try db.execute(sql: "DROP TABLE evidence")
+                try db.execute(sql: "ALTER TABLE evidence_new RENAME TO evidence")
+            }
+        }
+
+        // Behavioral history: look for signatureId/beforeSnapshot/afterSnapshot
+        if try db.tableExists("behavioral_history") {
+            let cols = try columnNames(in: "behavioral_history", db: db)
+            if cols.contains("signatureId") || cols.contains("beforeSnapshot") || cols.contains("afterSnapshot") {
+                try db.execute(sql: """
+                    CREATE TABLE behavioral_history_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        signature_id TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        before_snapshot TEXT,
+                        after_snapshot TEXT,
+                        success BOOLEAN NOT NULL,
+                        timestamp DOUBLE NOT NULL
+                    )
+                """)
+                // Handle possibly missing legacy columns with COALESCE to null-safe
+                let beforeExpr = cols.contains("beforeSnapshot") ? "beforeSnapshot" : "before_snapshot"
+                let afterExpr = cols.contains("afterSnapshot") ? "afterSnapshot" : "after_snapshot"
+                let sigExpr = cols.contains("signatureId") ? "signatureId" : "signature_id"
+                try db.execute(sql: """
+                    INSERT INTO behavioral_history_new (
+                        id, signature_id, action, before_snapshot, after_snapshot, success, timestamp
+                    )
+                    SELECT id, \(sigExpr), action, \(beforeExpr), \(afterExpr), success, timestamp
+                    FROM behavioral_history
+                """)
+                try db.execute(sql: "DROP TABLE behavioral_history")
+                try db.execute(sql: "ALTER TABLE behavioral_history_new RENAME TO behavioral_history")
             }
         }
     }
@@ -413,6 +528,26 @@ private struct SignatureRecord: Codable, FetchableRecord, MutablePersistableReco
         self.updatedAt = Date().timeIntervalSince1970
     }
 
+    // Decode from database row (snake_case columns)
+    init(row: Row) throws {
+        self.id = row["id"]
+        self.appBundleId = row["app_bundle_id"]
+        self.elementType = row["element_type"]
+        self.role = row["role"]
+        self.subroles = row["subroles"]
+        self.frameHash = row["frame_hash"]
+        self.pathHint = row["path_hint"]
+        self.siblingRoles = row["sibling_roles"]
+        self.readOnly = row["read_only"]
+        self.scrollable = row["scrollable"]
+        self.attrs = row["attrs"]
+        self.stability = row["stability"]
+        self.lastVerifiedAt = row["last_verified_at"]
+        self.isPinned = row["is_pinned"]
+        self.createdAt = row["created_at"]
+        self.updatedAt = row["updated_at"]
+    }
+
     // Ensure proper snake_case column mapping on insert/update
     func encode(to container: inout PersistenceContainer) {
         container["id"] = id
@@ -507,6 +642,19 @@ private struct EvidenceRecord: Codable, FetchableRecord, MutablePersistableRecor
         self.timestamp = evidence.timestamp
     }
 
+    // Decode from database row (snake_case columns)
+    init(row: Row) {
+        self.id = row["id"]
+        self.signatureId = row["signature_id"]
+        self.method = row["method"]
+        self.heuristicScore = row["heuristic_score"]
+        self.diffScore = row["diff_score"]
+        self.ocrChange = row["ocr_change"]
+        self.notifications = row["notifications"]
+        self.confidence = row["confidence"]
+        self.timestamp = row["timestamp"]
+    }
+
     // Ensure proper snake_case column mapping on insert/update
     func encode(to container: inout PersistenceContainer) {
         container["id"] = id
@@ -576,6 +724,17 @@ private struct BehavioralHistoryRecord: Codable, FetchableRecord, MutablePersist
         self.afterSnapshot = afterSnapshot?.jsonString()
         self.success = success
         self.timestamp = timestamp
+    }
+
+    // Decode from database row (snake_case columns)
+    init(row: Row) {
+        self.id = row["id"]
+        self.signatureId = row["signature_id"]
+        self.action = row["action"]
+        self.beforeSnapshot = row["before_snapshot"]
+        self.afterSnapshot = row["after_snapshot"]
+        self.success = row["success"]
+        self.timestamp = row["timestamp"]
     }
 
     // Ensure proper snake_case column mapping on insert/update

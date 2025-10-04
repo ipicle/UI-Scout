@@ -1,0 +1,19 @@
+2025-09-14T22:40:17-0400 info ui-scout.bootstrap: [UIScoutCore] Initializing UIScout...
+2025-09-14T22:40:17-0400 info ui-scout.bootstrap: [UIScoutCore] Environment: Unknown (Bundle: unknown)
+2025-09-14T22:40:17-0400 info ui-scout.bootstrap: [UIScoutCore] Recommended approach: Grant permissions to UIScout application
+2025-09-14T22:40:17-0400 info ui-scout.bootstrap: [UIScoutCore] Initial permission check:
+2025-09-14T22:40:17-0400 info ui-scout.bootstrap: [UIScoutCore] Permission Status:
+  Accessibility: ✓
+  Screen Recording: ✓
+  Can operate: Yes
+2025-09-14T22:40:17-0400 info ui-scout.bootstrap: [UIScoutCore] UIScout initialized successfully!
+2025-09-14T22:40:17-0400 info ui-scout.orchestrator: [UIScoutCore] Finding input element for com.raycast.macos
+2025-09-14T22:40:17-0400 info ui-scout.orchestrator: [UIScoutCore] Cached signature sufficient: confidence 1.0
+🔍 UIScout Find Results
+App: com.raycast.macos
+Element Type: input
+Confidence: 1.00
+Method: passive
+✅ Element found successfully
+Role: AXTextField
+Stability: 0.83

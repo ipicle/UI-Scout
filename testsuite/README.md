@@ -51,3 +51,27 @@ Scenarios in `testsuite/scenarios/*.json` shape the simulator responses. You can
 - Add additional endpoints in `simulator/server.js`
 - Create new scenario files under `testsuite/scenarios`
 
+## Proof-of-Access E2E (Apps)
+
+The `e2e/` folder contains an end-to-end proof harness that exercises real UI flows (no simulator): discovery, AX-safe send, OCR/AX read, copy-chat/copy-logs via the in-window actions menu, session swap, and evidence bundling.
+
+### Generic Harness
+
+```
+testsuite/e2e/uisct-proof.sh --app <bundleId> [--copy-chat "Label"] [--copy-logs "Label"]
+```
+
+Artifacts are written to `./_proof-<timestamp>/` and a tarball is created. Requires the UIScout CLI binaries to be built (`swift build -c release --product uisct-cli` and `--product UIScoutRead`).
+
+### Raycast Example
+
+```
+testsuite/e2e/proof-raycast.sh
+```
+
+This runs the generic proof for `com.raycast.macos` with common menu labels.
+
+> Notes:
+> - Ensure the target window is visible (OCR needs pixels).
+> - On first run, grant Accessibility and Screen Recording permissions.
+> - The harness reports WARN lines for advisory checks; hard failures exit non-zero.

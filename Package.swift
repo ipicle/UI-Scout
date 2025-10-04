@@ -10,7 +10,8 @@ let package = Package(
         .executable(name: "uisct-cli", targets: ["UIScoutCLI"]),
         .library(name: "UIScoutCore", targets: ["UIScoutCore"]),
     .executable(name: "uisct-service", targets: ["UIScoutService"]),
-    .executable(name: "uisct-testflow", targets: ["UIScoutTestflow"]) 
+    .executable(name: "uisct-testflow", targets: ["UIScoutTestflow"]),
+    .executable(name: "uisct-read", targets: ["UIScoutRead"]) 
     ],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.83.1"),
@@ -44,6 +45,14 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ],
             path: "cmd/uisct-cli"
+        ),
+        .executableTarget(
+            name: "UIScoutRead",
+            dependencies: [
+                "UIScoutCore",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ],
+            path: "cmd/uisct-read"
         ),
         .executableTarget(
             name: "UIScoutService",
